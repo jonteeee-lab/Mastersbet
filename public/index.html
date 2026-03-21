@@ -265,6 +265,7 @@ Bryson DeChambeau"></textarea>
     <div id="adminGrade" class="hidden">
       <div class="card" style="margin-bottom:0.5rem">
         <p style="font-size:0.9rem;color:var(--text-muted)">Sätt rätt svar för varje fråga. Spara ändras direkt. Leaderboarden uppdateras automatiskt.</p>
+        <div id="gradeProgress" style="margin-top:0.8rem"></div>
       </div>
       <div id="gradeList"></div>
       <div id="gradeMsg" style="margin-top:0.5rem"></div>
@@ -318,6 +319,15 @@ Bryson DeChambeau"></textarea>
         <div class="form-group"><label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer"><input type="checkbox" id="settingLocked"> Lås poolen manuellt nu</label></div>
         <button class="btn" onclick="saveSettings()">Spara inställningar</button>
         <div id="settingsMsg" style="margin-top:0.5rem"></div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>Leaderboard-snapshot</h3>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.8rem">Spara nuvarande rankingläge som referenspunkt. Leaderboarden visar rörelser jämfört med detta snapshot.</p>
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center">
+          <button class="btn" onclick="saveSnapshot()">📸 Spara nuvarande rankingläge</button>
+          <button class="btn btn-outline btn-sm" onclick="clearSnapshot()">Rensa snapshot</button>
+        </div>
+        <div id="snapshotMsg" style="margin-top:0.5rem"></div>
       </div>
     </div>
   </div>
@@ -474,10 +484,19 @@ async function loadResults() {
 
 // ── Leaderboard ──
 async function loadLeaderboard() {
-  const board = await api("/api/leaderboard");
+  const { board, prevSnapshot } = await api("/api/leaderboard");
   document.querySelector("#lbTable tbody").innerHTML = board.map((p,i) => {
     const cls = i===0?"rank-1":i===1?"rank-2":i===2?"rank-3":"";
-    return `<tr><td class="${cls}">${i+1}</td><td class="${cls}">${p.name}</td><td><strong>${p.points}</strong></td><td>${p.correctCount}</td><td>${p.answered}</td></tr>`;
+    let moveBadge = "";
+    if (prevSnapshot) {
+      const prevIdx = prevSnapshot.findIndex(x => x.name === p.name);
+      if (prevIdx !== -1) {
+        const diff = prevIdx - i;
+        if (diff > 0) moveBadge = `<span style="color:#1a7a3c;font-weight:700;font-size:0.85rem;margin-left:4px">▲${diff}</span>`;
+        else if (diff < 0) moveBadge = `<span style="color:#c0392b;font-weight:700;font-size:0.85rem;margin-left:4px">▼${Math.abs(diff)}</span>`;
+      }
+    }
+    return `<tr><td class="${cls}">${i+1}</td><td class="${cls}">${p.name}${moveBadge}</td><td><strong>${p.points}</strong></td><td>${p.correctCount}</td><td>${p.answered}</td></tr>`;
   }).join("");
 }
 
@@ -536,6 +555,17 @@ async function loadGradeList() {
   const qs = await api("/api/admin/questions");
   const c = document.getElementById("gradeList");
   if (!qs.length) { c.innerHTML=`<p style="color:var(--text-muted)">Inga frågor ännu.</p>`; return; }
+  const graded = qs.filter(q => q.correct_answer !== null && q.correct_answer !== undefined && q.correct_answer !== "").length;
+  const total = qs.length;
+  const pct = Math.round((graded/total)*100);
+  const prog = document.getElementById("gradeProgress");
+  if (prog) prog.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.8rem">
+      <div style="flex:1;background:#e8e8e8;border-radius:99px;height:8px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${pct===100?"var(--correct)":"var(--green)"};border-radius:99px;transition:width 0.4s"></div>
+      </div>
+      <span style="font-size:0.85rem;font-weight:600;color:${pct===100?"var(--correct)":"var(--green)");white-space:nowrap">${graded}/${total} rättade</span>
+    </div>`;
   c.innerHTML = qs.map(q => {
     const hasAns = q.correct_answer !== null && q.correct_answer !== undefined && q.correct_answer !== "";
     return `<div class="grade-card ${hasAns?"has-answer":"no-answer"}">
@@ -683,6 +713,22 @@ async function saveSettings() {
     document.getElementById("settingsMsg").innerHTML=`<div class="msg msg-ok">Sparat!</div>`;
     setTimeout(()=>document.getElementById("settingsMsg").innerHTML="",2000);
   } catch(e) { document.getElementById("settingsMsg").innerHTML=`<div class="msg msg-err">${e.message}</div>`; }
+}
+
+async function saveSnapshot() {
+  try {
+    await api("/api/admin/leaderboard/snapshot", {method:"POST", body:JSON.stringify({label: new Date().toLocaleString("sv-SE")})});
+    document.getElementById("snapshotMsg").innerHTML=`<div class="msg msg-ok">✓ Snapshot sparat!</div>`;
+    setTimeout(()=>document.getElementById("snapshotMsg").innerHTML="",2500);
+  } catch(e) { document.getElementById("snapshotMsg").innerHTML=`<div class="msg msg-err">${e.message}</div>`; }
+}
+async function clearSnapshot() {
+  if (!confirm("Rensa snapshot? Inga rörelser visas tills du sparar ett nytt.")) return;
+  try {
+    await api("/api/admin/leaderboard/snapshot", {method:"DELETE"});
+    document.getElementById("snapshotMsg").innerHTML=`<div class="msg msg-ok">Snapshot rensat.</div>`;
+    setTimeout(()=>document.getElementById("snapshotMsg").innerHTML="",2500);
+  } catch(e) { document.getElementById("snapshotMsg").innerHTML=`<div class="msg msg-err">${e.message}</div>`; }
 }
 
 checkAuth();
