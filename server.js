@@ -175,7 +175,8 @@ app.get('/api/leaderboard', async (req, res) => {
   try {
     const board = await calcLeaderboard();
     const snap = await get('SELECT data FROM leaderboard_snapshots ORDER BY created_at DESC LIMIT 1');
-    res.json({ board, prevSnapshot: snap ? snap.data : null });
+    const prevSnapshot = snap ? (typeof snap.data === 'string' ? JSON.parse(snap.data) : snap.data) : null;
+    res.json({ board, prevSnapshot });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
