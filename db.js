@@ -45,6 +45,14 @@ async function initDb() {
       value TEXT NOT NULL
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS leaderboard_snapshots (
+      id SERIAL PRIMARY KEY,
+      data JSONB NOT NULL,
+      label TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   // Default settings
   await pool.query(`
     INSERT INTO settings (key, value) VALUES

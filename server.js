@@ -135,21 +135,43 @@ app.get('/api/results', auth, async (req, res) => {
 });
 
 // ── Leaderboard ──
+async function calcLeaderboard() {
+  const users = await all('SELECT id, name FROM users ORDER BY created_at');
+  const questions = await all('SELECT id, points, correct_answer FROM questions');
+  const board = await Promise.all(users.map(async u => {
+    const answers = await all('SELECT question_id, answer FROM answers WHERE user_id = ?', [u.id]);
+    let earned = 0, correctCount = 0;
+    answers.forEach(a => {
+      const q = questions.find(q => q.id == a.question_id);
+      if (q && q.correct_answer !== null && a.answer === q.correct_answer) { earned += q.points; correctCount++; }
+    });
+    return { name: u.name, points: earned, answered: answers.length, correctCount };
+  }));
+  board.sort((a, b) => b.points - a.points);
+  return board;
+}
+
 app.get('/api/leaderboard', async (req, res) => {
   try {
-    const users = await all('SELECT id, name FROM users ORDER BY created_at');
-    const questions = await all('SELECT id, points, correct_answer FROM questions');
-    const board = await Promise.all(users.map(async u => {
-      const answers = await all('SELECT question_id, answer FROM answers WHERE user_id = ?', [u.id]);
-      let earned = 0, correctCount = 0;
-      answers.forEach(a => {
-        const q = questions.find(q => q.id == a.question_id);
-        if (q && q.correct_answer !== null && a.answer === q.correct_answer) { earned += q.points; correctCount++; }
-      });
-      return { name: u.name, points: earned, answered: answers.length, correctCount };
-    }));
-    board.sort((a, b) => b.points - a.points);
-    res.json(board);
+    const board = await calcLeaderboard();
+    const snap = await get('SELECT data FROM leaderboard_snapshots ORDER BY created_at DESC LIMIT 1');
+    res.json({ board, prevSnapshot: snap ? snap.data : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/leaderboard/snapshot', adminAuth, async (req, res) => {
+  try {
+    const board = await calcLeaderboard();
+    const { label } = req.body;
+    await run('INSERT INTO leaderboard_snapshots (data, label) VALUES (?, ?)', [JSON.stringify(board), label || null]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/leaderboard/snapshot', adminAuth, async (req, res) => {
+  try {
+    await run('DELETE FROM leaderboard_snapshots');
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
