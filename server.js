@@ -122,13 +122,24 @@ app.get('/api/results', auth, async (req, res) => {
     let total = 0, earned = 0;
     const results = rows.map(r => {
       if (r.options) r.options = JSON.parse(r.options);
-      total += r.points;
-      let correct = null;
+      const qPoints = r.type === 'weighted_choice'
+        ? (r.options || []).reduce((max, o) => Math.max(max, o.points || 0), 0)
+        : r.points;
+      total += qPoints;
+      let correct = null, pointsEarned = 0;
       if (r.correct_answer !== null) {
         correct = r.my_answer === r.correct_answer;
-        if (correct) earned += r.points;
+        if (correct) {
+          if (r.type === 'weighted_choice') {
+            const opt = (r.options || []).find(o => o.text === r.correct_answer);
+            pointsEarned = opt ? opt.points : r.points;
+          } else {
+            pointsEarned = r.points;
+          }
+          earned += pointsEarned;
+        }
       }
-      return { ...r, correct };
+      return { ...r, correct, pointsEarned };
     });
     res.json({ results, totalPoints: total, earnedPoints: earned });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -137,13 +148,22 @@ app.get('/api/results', auth, async (req, res) => {
 // ── Leaderboard ──
 async function calcLeaderboard() {
   const users = await all('SELECT id, name FROM users ORDER BY created_at');
-  const questions = await all('SELECT id, points, correct_answer FROM questions');
+  const questions = await all('SELECT id, type, points, options, correct_answer FROM questions');
   const board = await Promise.all(users.map(async u => {
     const answers = await all('SELECT question_id, answer FROM answers WHERE user_id = ?', [u.id]);
     let earned = 0, correctCount = 0;
     answers.forEach(a => {
       const q = questions.find(q => q.id == a.question_id);
-      if (q && q.correct_answer !== null && a.answer === q.correct_answer) { earned += q.points; correctCount++; }
+      if (q && q.correct_answer !== null && a.answer === q.correct_answer) {
+        if (q.type === 'weighted_choice') {
+          const opts = JSON.parse(q.options || '[]');
+          const opt = opts.find(o => o.text === q.correct_answer);
+          earned += opt ? opt.points : q.points;
+        } else {
+          earned += q.points;
+        }
+        correctCount++;
+      }
     });
     return { name: u.name, points: earned, answered: answers.length, correctCount };
   }));
