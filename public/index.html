@@ -236,12 +236,13 @@
           <div class="form-group" style="flex:1;min-width:130px"><label>Typ</label>
             <select id="aqType" onchange="toggleAqOptions()">
               <option value="multiple_choice">Flerval</option>
+              <option value="weighted_choice">Viktat flerval (olika poäng per alternativ)</option>
               <option value="yes_no">Ja / Nej</option>
               <option value="over_under">Over / Under</option>
               <option value="exact_value">Exakt värde</option>
             </select>
           </div>
-          <div class="form-group" style="flex:1;min-width:70px"><label>Poäng</label><input type="number" id="aqPoints" value="1" min="1"></div>
+          <div class="form-group" style="flex:1;min-width:70px" id="aqPointsGroup"><label>Poäng</label><input type="number" id="aqPoints" value="1" min="1"></div>
           <div class="form-group" style="flex:1;min-width:110px"><label>Kategori</label><input type="text" id="aqCategory" placeholder="T.ex. Vinnare"></div>
           <div class="form-group" style="flex:1;min-width:70px"><label>Ordning</label><input type="number" id="aqOrder" value="0"></div>
         </div>
@@ -251,6 +252,11 @@
 Rory McIlroy
 Jon Rahm
 Bryson DeChambeau"></textarea>
+        </div>
+        <div id="aqWeightedGroup" class="hidden">
+          <label style="font-weight:500;font-size:0.85rem;color:#444;display:block;margin-bottom:0.4rem">Alternativ med poäng</label>
+          <div id="aqWeightedList"></div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="addWeightedOption()" style="margin-top:0.4rem">+ Lägg till alternativ</button>
         </div>
         <button class="btn" onclick="addQuestion()">Lägg till</button>
         <div id="aqMsg" style="margin-top:0.5rem"></div>
@@ -447,6 +453,7 @@ async function loadQuestions() {
 }
 function renderInput(q, answer, disabled) {
   const dis = disabled ? "disabled" : "";
+  if (q.type==="weighted_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o.text}" ${answer===o.text?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> ${o.text} <span style="font-size:0.75rem;color:var(--text-muted)">(${o.points}p)</span></label>`).join("")}</div>`;
   if (q.type==="multiple_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o}" ${answer===o?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> ${o}</label>`).join("")}</div>`;
   if (q.type==="yes_no") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Ja" ${answer==="Ja"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Ja</label><label><input type="radio" name="q_${q.id}" value="Nej" ${answer==="Nej"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Nej</label></div>`;
   if (q.type==="over_under") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Over" ${answer==="Over"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Over</label><label><input type="radio" name="q_${q.id}" value="Under" ${answer==="Under"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Under</label></div>`;
@@ -512,17 +519,45 @@ function showAdminTab(tab, btn) {
 // ── Admin: Frågor ──
 function toggleAqOptions() {
   const t = document.getElementById("aqType").value;
-  document.getElementById("aqOptionsGroup").classList.toggle("hidden", t==="yes_no"||t==="exact_value");
+  document.getElementById("aqOptionsGroup").classList.toggle("hidden", t!=="multiple_choice"&&t!=="over_under");
+  document.getElementById("aqWeightedGroup").classList.toggle("hidden", t!=="weighted_choice");
+  document.getElementById("aqPointsGroup").classList.toggle("hidden", t==="weighted_choice");
+  if (t==="weighted_choice" && document.getElementById("aqWeightedList").children.length===0) {
+    addWeightedOption(); addWeightedOption();
+  }
+}
+let weightedOptCount = 0;
+function addWeightedOption() {
+  const id = ++weightedOptCount;
+  const row = document.createElement("div");
+  row.id = `wopt_${id}`;
+  row.style = "display:flex;gap:0.4rem;margin-bottom:0.35rem;align-items:center";
+  row.innerHTML = `<input placeholder="Alternativtext" style="flex:2;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="wopt-text">
+    <input type="number" placeholder="Poäng" min="0" style="flex:0 0 70px;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="wopt-pts">
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 0.3rem">✕</button>`;
+  document.getElementById("aqWeightedList").appendChild(row);
+}
+function getWeightedOptions() {
+  return Array.from(document.getElementById("aqWeightedList").children).map(row => ({
+    text: row.querySelector(".wopt-text").value.trim(),
+    points: parseInt(row.querySelector(".wopt-pts").value) || 0
+  })).filter(o => o.text);
 }
 async function addQuestion() {
-  const text=document.getElementById("aqText").value, type=document.getElementById("aqType").value;
+  const text=document.getElementById("aqText").value.trim(), type=document.getElementById("aqType").value;
   const points=parseInt(document.getElementById("aqPoints").value)||1;
   const category=document.getElementById("aqCategory").value, sort_order=parseInt(document.getElementById("aqOrder").value)||0;
-  const raw=document.getElementById("aqOptions").value;
-  const options=(type==="multiple_choice"||type==="over_under")?raw.split("\n").map(s=>s.trim()).filter(Boolean):null;
+  let options=null;
+  if (type==="multiple_choice"||type==="over_under") {
+    options = document.getElementById("aqOptions").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  } else if (type==="weighted_choice") {
+    options = getWeightedOptions();
+    if (!options.length) { document.getElementById("aqMsg").innerHTML=`<div class="msg msg-err">Lägg till minst ett alternativ</div>`; return; }
+  }
   try {
     await api("/api/admin/questions",{method:"POST",body:JSON.stringify({text,type,options,points,category,sort_order})});
     document.getElementById("aqText").value=""; document.getElementById("aqOptions").value="";
+    document.getElementById("aqWeightedList").innerHTML=""; weightedOptCount=0;
     document.getElementById("aqMsg").innerHTML=`<div class="msg msg-ok">Fråga tillagd!</div>`;
     loadAdminQList(); loadGradeList();
     setTimeout(()=>document.getElementById("aqMsg").innerHTML="",2000);
@@ -554,6 +589,7 @@ async function loadAdminQList() {
           <div class="form-group" style="flex:1;min-width:100px"><label>Ordning</label><input type="number" id="eq_ord_${q.id}" value="${q.sort_order||0}"></div>
         </div>
         ${q.type==='multiple_choice'?`<div class="form-group"><label>Alternativ (kommaseparerade)</label><input id="eq_opts_${q.id}" value="${(q.options||[]).join(', ')}"></div>`:''}
+        ${q.type==='weighted_choice'?`<div class="form-group"><label style="font-weight:500;font-size:0.85rem;color:#444;display:block;margin-bottom:0.4rem">Alternativ med poäng</label><div id="eq_wopts_${q.id}">${(q.options||[]).map((o,i)=>`<div style="display:flex;gap:0.4rem;margin-bottom:0.35rem;align-items:center"><input placeholder="Alternativtext" value="${o.text}" style="flex:2;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-text-${q.id}"><input type="number" placeholder="Poäng" value="${o.points}" style="flex:0 0 70px;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-pts-${q.id}"><button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 0.3rem">✕</button></div>`).join('')}</div><button type="button" onclick="addEditWeightedOption(${q.id})" class="btn btn-sm btn-outline" style="margin-top:0.3rem">+ Lägg till</button></div>`:''}
         <div class="flex-gap">
           <button class="btn btn-sm" onclick="saveEditQuestion(${q.id},'${q.type}')">Spara</button>
           <button class="btn btn-sm btn-outline" onclick="cancelEditQuestion(${q.id})">Avbryt</button>
@@ -577,12 +613,23 @@ async function saveEditQuestion(id, type) {
   const category = document.getElementById(`eq_cat_${id}`).value.trim()||null;
   const sort_order = parseInt(document.getElementById(`eq_ord_${id}`).value)||0;
   const optsEl = document.getElementById(`eq_opts_${id}`);
-  const options = optsEl ? optsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : null;
+  let options = optsEl ? optsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : null;
+  if (type === 'weighted_choice') {
+    const texts = Array.from(document.querySelectorAll(`.eq-wopt-text-${id}`)).map(el=>el.value.trim());
+    const pts = Array.from(document.querySelectorAll(`.eq-wopt-pts-${id}`)).map(el=>parseInt(el.value)||0);
+    options = texts.map((t,i)=>({text:t,points:pts[i]})).filter(o=>o.text);
+  }
   const existing = (await api("/api/admin/questions")).find(q=>q.id===id);
   await api(`/api/admin/questions/${id}`,{method:"PUT",body:JSON.stringify({
     text, type, options, points, category, sort_order, correct_answer: existing?.correct_answer||null
   })});
   loadAdminQList(); loadGradeList();
+}
+function addEditWeightedOption(qid) {
+  const row = document.createElement("div");
+  row.style = "display:flex;gap:0.4rem;margin-bottom:0.35rem;align-items:center";
+  row.innerHTML = `<input placeholder="Alternativtext" style="flex:2;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-text-${qid}"><input type="number" placeholder="Poäng" min="0" style="flex:0 0 70px;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-pts-${qid}"><button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 0.3rem">✕</button>`;
+  document.getElementById(`eq_wopts_${qid}`).appendChild(row);
 }
 async function deleteQuestion(id) {
   if (!confirm("Är du säker? Alla svar på denna fråga raderas.")) return;
@@ -643,6 +690,11 @@ function gradeInput(q) {
     <select id="grade_${q.id}" style="padding:0.35rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;background:var(--bg-input);max-width:220px">
       <option value="">-- välj --</option>
       ${q.options.map(o=>`<option value="${o}" ${cur===o?"selected":""}>${o}</option>`).join("")}
+    </select>`;
+  if (q.type==="weighted_choice" && q.options) return `
+    <select id="grade_${q.id}" style="padding:0.35rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;background:var(--bg-input);max-width:220px">
+      <option value="">-- välj --</option>
+      ${q.options.map(o=>`<option value="${o.text}" ${cur===o.text?"selected":""}>${o.text} (${o.points}p)</option>`).join("")}
     </select>`;
   return `<input type="text" id="grade_${q.id}" value="${cur}" placeholder="Rätt svar..." style="padding:0.35rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;background:var(--bg-input);max-width:220px">`;
 }
