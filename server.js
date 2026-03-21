@@ -197,6 +197,24 @@ app.delete('/api/admin/leaderboard/snapshot', adminAuth, async (req, res) => {
 
 // ══ ADMIN ══
 
+app.get('/api/admin/stats', adminAuth, async (req, res) => {
+  try {
+    const questions = await all('SELECT id, text, type, options, correct_answer FROM questions ORDER BY sort_order, id');
+    const totalUsers = (await get('SELECT COUNT(*) as c FROM users')).c;
+    const stats = await Promise.all(questions.map(async q => {
+      if (q.options) q.options = JSON.parse(q.options);
+      const dist = await all('SELECT answer, COUNT(*) as count FROM answers WHERE question_id = ? GROUP BY answer ORDER BY count DESC', [q.id]);
+      const totalAnswers = dist.reduce((s,a)=>s+parseInt(a.count),0);
+      return {
+        id: q.id, text: q.text, type: q.type, correct_answer: q.correct_answer,
+        totalAnswers, notAnswered: totalUsers - totalAnswers,
+        distribution: dist.map(a=>({ answer: a.answer, count: parseInt(a.count), pct: totalAnswers>0?Math.round(parseInt(a.count)/totalAnswers*100):0 }))
+      };
+    }));
+    res.json(stats);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/questions', adminAuth, async (req, res) => {
   try {
     const qs = await all('SELECT * FROM questions ORDER BY sort_order, id');
