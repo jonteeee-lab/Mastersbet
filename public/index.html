@@ -533,17 +533,56 @@ async function loadAdminQList() {
   const c = document.getElementById("adminQList");
   if (!qs.length) { c.innerHTML=`<p style="color:var(--text-muted)">Inga frågor ännu.</p>`; return; }
   c.innerHTML = qs.map(q => `
-    <div class="q-card" style="font-size:0.88rem">
-      <div class="q-header"><span class="q-text">${q.text}</span><span class="q-pts">${q.points} p</span></div>
-      <div class="flex-gap" style="margin-bottom:0.4rem">
-        <span class="type-badge">${q.type}</span>
-        ${q.category?`<span class="cat-badge">${q.category}</span>`:""}
-        ${q.correct_answer?`<span class="ans-badge">Svar: ${q.correct_answer}</span>`:`<span class="noans-badge">Ej rättat</span>`}
+    <div class="q-card" style="font-size:0.88rem" id="qcard_${q.id}">
+      <div id="qview_${q.id}">
+        <div class="q-header"><span class="q-text">${q.text}</span><span class="q-pts">${q.points} p</span></div>
+        <div class="flex-gap" style="margin-bottom:0.4rem">
+          <span class="type-badge">${q.type}</span>
+          ${q.category?`<span class="cat-badge">${q.category}</span>`:""}
+          ${q.correct_answer?`<span class="ans-badge">Svar: ${q.correct_answer}</span>`:`<span class="noans-badge">Ej rättat</span>`}
+        </div>
+        <div class="flex-gap">
+          <button class="btn btn-sm btn-outline" onclick="startEditQuestion(${q.id})">Redigera</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteQuestion(${q.id})">Ta bort</button>
+        </div>
       </div>
-      <div class="flex-gap">
-        <button class="btn btn-sm btn-danger" onclick="deleteQuestion(${q.id})">Ta bort</button>
+      <div id="qedit_${q.id}" style="display:none">
+        <div class="form-group"><label>Frågetext</label><input id="eq_text_${q.id}" value="${q.text.replace(/"/g,'&quot;')}"></div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <div class="form-group" style="flex:1;min-width:100px"><label>Poäng</label><input type="number" id="eq_pts_${q.id}" value="${q.points}" min="1"></div>
+          <div class="form-group" style="flex:1;min-width:100px"><label>Kategori</label><input id="eq_cat_${q.id}" value="${q.category||''}"></div>
+          <div class="form-group" style="flex:1;min-width:100px"><label>Ordning</label><input type="number" id="eq_ord_${q.id}" value="${q.sort_order||0}"></div>
+        </div>
+        ${q.type==='multiple_choice'?`<div class="form-group"><label>Alternativ (kommaseparerade)</label><input id="eq_opts_${q.id}" value="${(q.options||[]).join(', ')}"></div>`:''}
+        <div class="flex-gap">
+          <button class="btn btn-sm" onclick="saveEditQuestion(${q.id},'${q.type}')">Spara</button>
+          <button class="btn btn-sm btn-outline" onclick="cancelEditQuestion(${q.id})">Avbryt</button>
+        </div>
+        <div id="eq_msg_${q.id}" style="margin-top:0.4rem"></div>
       </div>
     </div>`).join("");
+}
+function startEditQuestion(id) {
+  document.getElementById(`qview_${id}`).style.display="none";
+  document.getElementById(`qedit_${id}`).style.display="block";
+}
+function cancelEditQuestion(id) {
+  document.getElementById(`qview_${id}`).style.display="block";
+  document.getElementById(`qedit_${id}`).style.display="none";
+}
+async function saveEditQuestion(id, type) {
+  const text = document.getElementById(`eq_text_${id}`).value.trim();
+  if (!text) { document.getElementById(`eq_msg_${id}`).innerHTML=`<span style="color:var(--red)">Frågetext krävs</span>`; return; }
+  const points = parseInt(document.getElementById(`eq_pts_${id}`).value)||1;
+  const category = document.getElementById(`eq_cat_${id}`).value.trim()||null;
+  const sort_order = parseInt(document.getElementById(`eq_ord_${id}`).value)||0;
+  const optsEl = document.getElementById(`eq_opts_${id}`);
+  const options = optsEl ? optsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : null;
+  const existing = (await api("/api/admin/questions")).find(q=>q.id===id);
+  await api(`/api/admin/questions/${id}`,{method:"PUT",body:JSON.stringify({
+    text, type, options, points, category, sort_order, correct_answer: existing?.correct_answer||null
+  })});
+  loadAdminQList(); loadGradeList();
 }
 async function deleteQuestion(id) {
   if (!confirm("Är du säker? Alla svar på denna fråga raderas.")) return;
