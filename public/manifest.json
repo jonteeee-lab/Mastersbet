@@ -1,0 +1,22 @@
+{
+  "name": "Mastersbet 2026",
+  "short_name": "Mastersbet",
+  "description": "Masters Golf Prop Bet Pool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F0F0F0",
+  "theme_color": "#085036",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

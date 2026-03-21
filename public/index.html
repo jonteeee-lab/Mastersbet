@@ -2,7 +2,12 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Mastersbet">
+  <meta name="theme-color" content="#085036">
+  <link rel="manifest" href="/manifest.json">
   <title>Mastersbet 2026</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -146,10 +151,9 @@
       .header { flex-direction: column; align-items: flex-start; gap: 0.3rem; padding: 0.6rem 1rem; }
       .header-logo { height: 32px; }
       .header-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-      .header nav { justify-content: flex-start; gap: 0.1rem; flex-wrap: wrap; }
-      .header nav button { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
+      .header nav { display: none; }
       .user-badge { font-size: 0.75rem; }
-      .container { padding: 0 0.5rem; }
+      .container { padding: 0 0.5rem; padding-bottom: 80px; }
       .card { padding: 0.9rem; }
       .landing-logo { width: 260px; }
       /* Leaderboard table: scrollable + compact */
@@ -161,7 +165,49 @@
       .stats-bar { flex-direction: row; }
       .stat-card { min-width: 0; padding: 0.6rem 0.5rem; }
       .stat-card .val { font-size: 1.3rem; }
+      /* Sticky save button */
+      #saveBtn { position: sticky; bottom: 72px; z-index: 99; box-shadow: 0 -2px 8px rgba(0,0,0,0.18); width: 100%; }
     }
+
+    /* ── Bottom Nav ── */
+    .bottom-nav { display: none; }
+    @media (max-width: 600px) {
+      .bottom-nav {
+        display: flex;
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        background: var(--bg-card);
+        border-top: 1px solid var(--border-dark);
+        padding: 0.35rem 0;
+        padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+        z-index: 1000;
+        justify-content: space-around;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.08);
+      }
+      .bottom-nav button {
+        flex: 1; background: none; border: none; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+        padding: 0.25rem 0.2rem; color: var(--text-muted); font-family: inherit;
+        font-size: 0.6rem; font-weight: 500; transition: color 0.15s; -webkit-tap-highlight-color: transparent;
+      }
+      .bottom-nav button .nav-icon { font-size: 1.3rem; line-height: 1; }
+      .bottom-nav button.active { color: var(--green); }
+      .bottom-nav button:active { opacity: 0.6; }
+    }
+
+    /* ── Loading spinner ── */
+    .spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-wrap { display: flex; justify-content: center; padding: 2rem; }
+
+    /* ── View fade-in ── */
+    .view-fade { animation: viewFadeIn 0.18s ease both; }
+    @keyframes viewFadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+    /* ── Tap feedback on radio options ── */
+    .radio-group label { transition: background 0.1s, transform 0.08s; -webkit-tap-highlight-color: transparent; }
+    .radio-group label:active { background: rgba(8,80,54,0.12); transform: scale(0.985); }
+    .radio-group label:has(input:checked) { background: rgba(8,80,54,0.07); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -387,6 +433,7 @@ function goToLanding() {
   document.getElementById("landingView").classList.remove("hidden");
   document.getElementById("mainHeader").classList.add("hidden");
   document.getElementById("app").classList.add("hidden");
+  document.getElementById("bottomNav").classList.add("hidden");
 }
 function goToAuth(mode) {
   document.getElementById("landingView").classList.add("hidden");
@@ -433,6 +480,9 @@ function buildNav() {
   if (currentUser.is_admin) h += `<button onclick="showView('admin')">Admin</button>`;
   h += `<button onclick="logout()">Logga ut</button>`;
   nav.innerHTML = h;
+  // Bottom nav: show/hide admin button
+  if (currentUser.is_admin) document.getElementById("bnAdmin").classList.remove("hidden");
+  document.getElementById("bottomNav").classList.remove("hidden");
 }
 
 // ── Views ──
@@ -440,11 +490,20 @@ function hideAllViews() {
   ["authView","questionsView","resultsView","leaderboardView","adminView"].forEach(v => document.getElementById(v).classList.add("hidden"));
 }
 function showView(name) {
-  hideAllViews(); document.getElementById(name+"View").classList.remove("hidden");
+  hideAllViews();
+  const el = document.getElementById(name+"View");
+  el.classList.remove("hidden");
+  el.classList.remove("view-fade");
+  void el.offsetWidth; // reflow to restart animation
+  el.classList.add("view-fade");
   document.querySelectorAll("#nav button").forEach(b => b.classList.remove("active"));
   const map = {questions:0,results:1,leaderboard:2,admin:3};
   const btns = document.querySelectorAll("#nav button");
   if (btns[map[name]]) btns[map[name]].classList.add("active");
+  // Sync bottom nav
+  document.querySelectorAll("#bottomNav button[data-view]").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === name);
+  });
   if (name==="questions") loadQuestions();
   if (name==="results") loadResults();
   if (name==="leaderboard") loadLeaderboard();
@@ -459,6 +518,7 @@ async function loadSettings() {
 
 // ── Questions ──
 async function loadQuestions() {
+  document.getElementById("qList").innerHTML = `<div class="loading-wrap"><div class="spinner"></div></div>`;
   const [qs, ans] = await Promise.all([api("/api/questions"), api("/api/answers")]);
   myAnswers = {}; ans.forEach(a => { myAnswers[a.question_id] = a.answer; });
   const locked = settings.locked==="1" || new Date(settings.deadline) < new Date();
@@ -546,6 +606,7 @@ async function saveAnswers() {
 
 // ── Results ──
 async function loadResults() {
+  document.getElementById("rList").innerHTML = `<div class="loading-wrap"><div class="spinner"></div></div>`;
   const data = await api("/api/results");
   document.getElementById("rStats").innerHTML = `
     <div class="stat-card"><div class="val">${data.earnedPoints}</div><div class="lbl">Dina poäng</div></div>
@@ -568,6 +629,7 @@ async function loadResults() {
 // ── Leaderboard ──
 let lastBoard = [];
 async function loadLeaderboard() {
+  document.querySelector("#lbTable tbody").innerHTML = `<tr><td colspan="5"><div class="loading-wrap"><div class="spinner"></div></div></td></tr>`;
   const { board, prevSnapshot } = await api("/api/leaderboard");
   lastBoard = board;
   const myIdx = board.findIndex(p => p.name === currentUser?.name);
@@ -975,5 +1037,28 @@ async function clearSnapshot() {
 
 checkAuth();
 </script>
+<!-- BOTTOM NAV (mobile only) -->
+<nav class="bottom-nav hidden" id="bottomNav">
+  <button onclick="showView('questions')" data-view="questions">
+    <span class="nav-icon">📋</span>
+    <span>Frågor</span>
+  </button>
+  <button onclick="showView('results')" data-view="results">
+    <span class="nav-icon">🏅</span>
+    <span>Resultat</span>
+  </button>
+  <button onclick="showView('leaderboard')" data-view="leaderboard">
+    <span class="nav-icon">🏆</span>
+    <span>Ledartavla</span>
+  </button>
+  <button id="bnAdmin" onclick="showView('admin')" data-view="admin" class="hidden">
+    <span class="nav-icon">⚙️</span>
+    <span>Admin</span>
+  </button>
+  <button onclick="logout()">
+    <span class="nav-icon">🚪</span>
+    <span>Logga ut</span>
+  </button>
+</nav>
 </body>
 </html>
