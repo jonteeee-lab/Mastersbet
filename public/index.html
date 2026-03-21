@@ -603,7 +603,7 @@ async function loadGradeList() {
       <div style="flex:1;background:#e8e8e8;border-radius:99px;height:8px;overflow:hidden">
         <div style="width:${pct}%;height:100%;background:${pct===100?"var(--correct)":"var(--green)"};border-radius:99px;transition:width 0.4s"></div>
       </div>
-      <span style="font-size:0.85rem;font-weight:600;color:${pct===100?"var(--correct)":"var(--green)");white-space:nowrap">${graded}/${total} rättade</span>
+      <span style="font-size:0.85rem;font-weight:600;color:${pct===100?"var(--correct)":"var(--green)"};white-space:nowrap">${graded}/${total} rättade</span>
     </div>`;
   c.innerHTML = qs.map(q => {
     const hasAns = q.correct_answer !== null && q.correct_answer !== undefined && q.correct_answer !== "";
