@@ -222,8 +222,12 @@
 
   <!-- LEADERBOARD -->
   <div id="leaderboardView" class="hidden">
+    <div id="myRankCard" style="margin-bottom:0.8rem"></div>
     <div class="card">
-      <h2>Leaderboard</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem">
+        <h2 style="margin:0">Leaderboard</h2>
+        <button class="btn btn-sm btn-outline" onclick="exportCsv()">⬇ CSV</button>
+      </div>
       <div class="lb-table-wrap">
         <table class="lb-table" id="lbTable">
           <thead><tr><th>#</th><th>Namn</th><th>Poäng</th><th>Rätt svar</th><th>Besvarat</th></tr></thead>
@@ -241,6 +245,7 @@
       <button class="tab" onclick="showAdminTab('participants',this)">Deltagarsvar</button>
       <button class="tab" onclick="showAdminTab('users',this)">Användare</button>
       <button class="tab" onclick="showAdminTab('settings',this)">Inställningar</button>
+      <button class="tab" onclick="showAdminTab('stats',this)">📊 Statistik</button>
     </div>
 
     <!-- Admin: Frågor -->
@@ -286,11 +291,14 @@ Bryson DeChambeau"></textarea>
     <!-- Admin: Rätta svar -->
     <div id="adminGrade" class="hidden">
       <div class="card" style="margin-bottom:0.5rem">
-        <p style="font-size:0.9rem;color:var(--text-muted)">Sätt rätt svar för varje fråga. Spara ändras direkt. Leaderboarden uppdateras automatiskt.</p>
+        <p style="font-size:0.9rem;color:var(--text-muted)">Sätt rätt svar för varje fråga. Spara enskilt eller använd "Spara alla" för att rätta allt på en gång.</p>
         <div id="gradeProgress" style="margin-top:0.8rem"></div>
+        <div style="display:flex;gap:0.6rem;align-items:center;margin-top:0.8rem">
+          <button class="btn" onclick="saveAllAnswers()">✅ Spara alla svar</button>
+          <div id="gradeAllMsg" style="font-size:0.85rem"></div>
+        </div>
       </div>
       <div id="gradeList"></div>
-      <div id="gradeMsg" style="margin-top:0.5rem"></div>
     </div>
 
     <!-- Admin: Deltagarsvar -->
@@ -351,6 +359,14 @@ Bryson DeChambeau"></textarea>
         </div>
         <div id="snapshotMsg" style="margin-top:0.5rem"></div>
       </div>
+    </div>
+
+    <!-- Admin: Statistik -->
+    <div id="adminStats" class="hidden">
+      <div class="card" style="margin-bottom:0.5rem">
+        <p style="font-size:0.9rem;color:var(--text-muted)">Svarsfördelning per fråga — hur deltagarna har svarat.</p>
+      </div>
+      <div id="statsList"></div>
     </div>
   </div>
 
@@ -452,8 +468,9 @@ async function loadQuestions() {
     document.getElementById("saveBtn").classList.add("hidden");
   } else {
     const dl = new Date(settings.deadline);
-    banner.innerHTML = `<div class="banner-warn">Deadline: ${dl.toLocaleDateString("sv-SE")} kl ${dl.toLocaleTimeString("sv-SE",{hour:"2-digit",minute:"2-digit"})}</div>`;
+    banner.innerHTML = `<div class="banner-warn">⏳ Deadline: ${dl.toLocaleDateString("sv-SE")} kl ${dl.toLocaleTimeString("sv-SE",{hour:"2-digit",minute:"2-digit"})} &nbsp;|&nbsp; <span id="countdown" style="font-weight:700"></span></div>`;
     document.getElementById("saveBtn").classList.remove("hidden");
+    startCountdown(dl);
   }
   const answered = qs.filter(q => myAnswers[q.id] !== undefined).length;
   document.getElementById("qStats").innerHTML = `
@@ -475,11 +492,54 @@ function renderInput(q, answer, disabled) {
   if (q.type==="over_under") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Over" ${answer==="Over"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Over</label><label><input type="radio" name="q_${q.id}" value="Under" ${answer==="Under"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Under</label></div>`;
   return `<input type="text" value="${answer||""}" ${dis} placeholder="Skriv ditt svar..." style="max-width:280px" onchange="myAnswers[${q.id}]=this.value" oninput="myAnswers[${q.id}]=this.value">`;
 }
+let countdownTimer = null;
+function startCountdown(deadline) {
+  if (countdownTimer) clearInterval(countdownTimer);
+  function update() {
+    const el = document.getElementById("countdown");
+    if (!el) { clearInterval(countdownTimer); return; }
+    const diff = deadline - new Date();
+    if (diff <= 0) { el.textContent = "Deadline passerad!"; clearInterval(countdownTimer); return; }
+    const d = Math.floor(diff/86400000), h = Math.floor((diff%86400000)/3600000);
+    const m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000);
+    el.textContent = d>0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
+  }
+  update();
+  countdownTimer = setInterval(update, 1000);
+}
+
+function launchConfetti() {
+  const canvas = document.createElement("canvas");
+  canvas.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999";
+  document.body.appendChild(canvas);
+  canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+  const ctx = canvas.getContext("2d");
+  const colors = ["#085036","#12a067","#f6c90e","#e74c3c","#3498db","#ffffff"];
+  const pieces = Array.from({length:100}, ()=>({
+    x: Math.random()*canvas.width, y: Math.random()*canvas.height - canvas.height,
+    w: Math.random()*12+5, h: Math.random()*6+3,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    rot: Math.random()*360, speed: Math.random()*4+2, rotSpeed: Math.random()*8-4
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    pieces.forEach(p => {
+      p.y += p.speed; p.rot += p.rotSpeed;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle = p.color; ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h); ctx.restore();
+    });
+    if (++frame < 150) requestAnimationFrame(draw); else canvas.remove();
+  }
+  draw();
+}
+
 async function saveAnswers() {
   const answers = Object.entries(myAnswers).map(([qid,answer])=>({question_id:Number(qid),answer}));
   try {
     await api("/api/answers",{method:"POST",body:JSON.stringify({answers})});
-    document.getElementById("saveMsg").innerHTML = `<div class="msg msg-ok">Dina svar har sparats!</div>`;
+    document.getElementById("saveMsg").innerHTML = `<div class="msg msg-ok">🎉 Dina svar har sparats!</div>`;
+    launchConfetti();
     setTimeout(()=>document.getElementById("saveMsg").innerHTML="",3000);
   } catch(e) { document.getElementById("saveMsg").innerHTML = `<div class="msg msg-err">${e.message}</div>`; }
 }
@@ -506,10 +566,33 @@ async function loadResults() {
 }
 
 // ── Leaderboard ──
+let lastBoard = [];
 async function loadLeaderboard() {
   const { board, prevSnapshot } = await api("/api/leaderboard");
+  lastBoard = board;
+  const myIdx = board.findIndex(p => p.name === currentUser?.name);
+  const myRankCard = document.getElementById("myRankCard");
+  if (myIdx !== -1) {
+    const me = board[myIdx];
+    let moveText = "";
+    if (prevSnapshot) {
+      const prevIdx = prevSnapshot.findIndex(x => x.name === me.name);
+      if (prevIdx !== -1 && prevIdx !== myIdx) {
+        const diff = prevIdx - myIdx;
+        moveText = diff > 0
+          ? `<span style="color:#1a7a3c;font-weight:700"> ▲${diff}</span>`
+          : `<span style="color:#c0392b;font-weight:700"> ▼${Math.abs(diff)}</span>`;
+      }
+    }
+    myRankCard.innerHTML = `<div class="card" style="background:var(--green);color:white;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+      <div><div style="font-size:0.8rem;opacity:0.8">Din placering</div><div style="font-size:1.8rem;font-weight:700">#${myIdx+1} av ${board.length}${moveText}</div></div>
+      <div style="text-align:right"><div style="font-size:0.8rem;opacity:0.8">Dina poäng</div><div style="font-size:1.8rem;font-weight:700">${me.points} p</div></div>
+    </div>`;
+  } else { myRankCard.innerHTML = ""; }
+
   document.querySelector("#lbTable tbody").innerHTML = board.map((p,i) => {
     const cls = i===0?"rank-1":i===1?"rank-2":i===2?"rank-3":"";
+    const isMe = p.name === currentUser?.name;
     let moveBadge = "";
     if (prevSnapshot) {
       const prevIdx = prevSnapshot.findIndex(x => x.name === p.name);
@@ -519,17 +602,54 @@ async function loadLeaderboard() {
         else if (diff < 0) moveBadge = `<span style="color:#c0392b;font-weight:700;font-size:0.85rem;margin-left:4px">▼${Math.abs(diff)}</span>`;
       }
     }
-    return `<tr><td class="${cls}">${i+1}</td><td class="${cls}">${p.name}${moveBadge}</td><td><strong>${p.points}</strong></td><td>${p.correctCount}</td><td>${p.answered}</td></tr>`;
+    const rowStyle = isMe ? "background:rgba(8,80,54,0.07);font-weight:600;" : "";
+    return `<tr style="${rowStyle}"><td class="${cls}">${i+1}</td><td class="${cls}">${p.name}${isMe?' <span style="font-size:0.7rem;color:var(--green)">(du)</span>':''}${moveBadge}</td><td><strong>${p.points}</strong></td><td>${p.correctCount}</td><td>${p.answered}</td></tr>`;
   }).join("");
+}
+
+function exportCsv() {
+  const rows = [["Placering","Namn","Poäng","Rätt svar","Besvarat"]];
+  lastBoard.forEach((p,i) => rows.push([i+1, p.name, p.points, p.correctCount, p.answered]));
+  const csv = rows.map(r => r.join(";")).join("\n");
+  const a = document.createElement("a");
+  a.href = "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent(csv);
+  a.download = "leaderboard.csv";
+  a.click();
 }
 
 // ── Admin: tabs ──
 function showAdminTab(tab, btn) {
-  ["adminQuestions","adminGrade","adminParticipants","adminUsers","adminSettings"].forEach(id => document.getElementById(id).classList.add("hidden"));
+  ["adminQuestions","adminGrade","adminParticipants","adminUsers","adminSettings","adminStats"].forEach(id => document.getElementById(id).classList.add("hidden"));
   document.querySelectorAll("#adminTabs .tab").forEach(t => t.classList.remove("active"));
   document.getElementById("admin"+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.remove("hidden");
   if (btn) btn.classList.add("active");
   if (tab==="settings") loadAdminSettings();
+  if (tab==="stats") loadStats();
+}
+async function loadStats() {
+  const stats = await api("/api/admin/stats");
+  const c = document.getElementById("statsList");
+  if (!stats.length) { c.innerHTML=`<p style="color:var(--text-muted)">Inga frågor ännu.</p>`; return; }
+  c.innerHTML = stats.map(q => {
+    const bars = q.distribution.map(d => {
+      const isCorrect = q.correct_answer && d.answer === q.correct_answer;
+      const color = isCorrect ? "var(--correct)" : "var(--green)";
+      return `<div style="margin-bottom:0.4rem">
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:0.15rem">
+          <span>${d.answer}${isCorrect?' ✓':''}</span>
+          <span style="color:var(--text-muted)">${d.count} st (${d.pct}%)</span>
+        </div>
+        <div style="background:#e8e8e8;border-radius:99px;height:8px">
+          <div style="width:${d.pct}%;height:100%;background:${color};border-radius:99px;transition:width 0.4s"></div>
+        </div>
+      </div>`;
+    }).join("");
+    return `<div class="card" style="margin-bottom:0.7rem">
+      <div style="font-weight:600;margin-bottom:0.6rem;font-size:0.95rem">${q.text}</div>
+      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.6rem">${q.totalAnswers} av ${q.totalAnswers + q.notAnswered} har svarat</div>
+      ${bars || '<p style="color:var(--text-muted);font-size:0.85rem">Inga svar ännu</p>'}
+    </div>`;
+  }).join("");
 }
 
 // ── Admin: Frågor ──
@@ -713,6 +833,21 @@ function gradeInput(q) {
       ${q.options.map(o=>`<option value="${o.text}" ${cur===o.text?"selected":""}>${o.text} (${o.points}p)</option>`).join("")}
     </select>`;
   return `<input type="text" id="grade_${q.id}" value="${cur}" placeholder="Rätt svar..." style="padding:0.35rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;background:var(--bg-input);max-width:220px">`;
+}
+async function saveAllAnswers() {
+  const qs = await api("/api/admin/questions");
+  let saved = 0, skipped = 0;
+  for (const q of qs) {
+    const el = document.getElementById(`grade_${q.id}`);
+    if (!el) continue;
+    const answer = el.value.trim();
+    if (!answer) { skipped++; continue; }
+    await api(`/api/admin/questions/${q.id}`,{method:"PUT",body:JSON.stringify({...q, correct_answer:answer, options:q.options||undefined})});
+    saved++;
+  }
+  const msg = document.getElementById("gradeAllMsg");
+  msg.innerHTML = `<span style="color:var(--correct)">✓ ${saved} sparade${skipped>0?`, ${skipped} hoppades över`:""}</span>`;
+  setTimeout(()=>{ msg.innerHTML=""; loadGradeList(); loadAdminQList(); }, 2000);
 }
 async function saveCorrectAnswer(id) {
   const el = document.getElementById(`grade_${id}`);
