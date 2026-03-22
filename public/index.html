@@ -215,6 +215,28 @@
     .day-filter-btn { background: var(--bg-card); border: 1px solid var(--border-dark); color: var(--text-muted); padding: 0.3rem 0.75rem; border-radius: 20px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: 500; transition: all 0.15s; white-space: nowrap; }
     .day-filter-btn:hover { border-color: var(--green); color: var(--green); }
     .day-filter-btn.active { background: var(--green); border-color: var(--green); color: white; font-weight: 600; }
+
+    /* ── Toast notification ── */
+    .toast {
+      position: fixed; top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px);
+      background: var(--correct); color: white; padding: 0.7rem 1.4rem;
+      border-radius: 24px; font-size: 0.9rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18); z-index: 9999;
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
+      opacity: 0; pointer-events: none; white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    .toast.error { background: var(--red); }
+
+    /* ── Nav badge ── */
+    .nav-badge {
+      position: absolute; top: 2px; right: 12px;
+      background: #e53935; color: white; border-radius: 99px;
+      font-size: 0.55rem; font-weight: 700; min-width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 4px; line-height: 1;
+    }
+    #bottomNav button { position: relative; }
   </style>
 </head>
 <body>
@@ -529,7 +551,13 @@ function showView(name) {
   });
   if (name==="questions") loadQuestions();
   if (name==="results") loadResults();
-  if (name==="leaderboard") loadLeaderboard();
+  if (name==="leaderboard") {
+    loadLeaderboard();
+    clearInterval(_lbRefreshTimer);
+    _lbRefreshTimer = setInterval(loadLeaderboard, 60000);
+  } else {
+    clearInterval(_lbRefreshTimer);
+  }
   if (name==="admin") { loadAdminQList(); loadGradeList(); loadAdminUsers(); loadParticipantSelect(); }
 }
 
@@ -556,6 +584,7 @@ async function loadQuestions() {
     startCountdown(dl);
   }
   const answered = qs.filter(q => myAnswers[q.id] !== undefined).length;
+  updateNavBadge(qs.length - answered);
   document.getElementById("qStats").innerHTML = `
     <div class="stat-card"><div class="val">${qs.length}</div><div class="lbl">Frågor</div></div>
     <div class="stat-card"><div class="val">${answered}</div><div class="lbl">Besvarade</div></div>
@@ -589,11 +618,11 @@ async function loadQuestions() {
 }
 function renderInput(q, answer, disabled) {
   const dis = disabled ? "disabled" : "";
-  if (q.type==="weighted_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o.text}" ${answer===o.text?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> ${o.text} <span style="font-size:0.75rem;color:var(--text-muted)">(${o.points}p)</span></label>`).join("")}</div>`;
-  if (q.type==="multiple_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o}" ${answer===o?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> ${o}</label>`).join("")}</div>`;
-  if (q.type==="yes_no") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Ja" ${answer==="Ja"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Ja</label><label><input type="radio" name="q_${q.id}" value="Nej" ${answer==="Nej"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Nej</label></div>`;
-  if (q.type==="over_under") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Over" ${answer==="Over"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Over</label><label><input type="radio" name="q_${q.id}" value="Under" ${answer==="Under"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value"> Under</label></div>`;
-  return `<input type="text" value="${answer||""}" ${dis} placeholder="Skriv ditt svar..." style="max-width:280px" onchange="myAnswers[${q.id}]=this.value" oninput="myAnswers[${q.id}]=this.value">`;
+  if (q.type==="weighted_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o.text}" ${answer===o.text?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> ${o.text} <span style="font-size:0.75rem;color:var(--text-muted)">(${o.points}p)</span></label>`).join("")}</div>`;
+  if (q.type==="multiple_choice") return `<div class="radio-group">${(q.options||[]).map(o=>`<label><input type="radio" name="q_${q.id}" value="${o}" ${answer===o?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> ${o}</label>`).join("")}</div>`;
+  if (q.type==="yes_no") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Ja" ${answer==="Ja"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> Ja</label><label><input type="radio" name="q_${q.id}" value="Nej" ${answer==="Nej"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> Nej</label></div>`;
+  if (q.type==="over_under") return `<div class="radio-group"><label><input type="radio" name="q_${q.id}" value="Over" ${answer==="Over"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> Over</label><label><input type="radio" name="q_${q.id}" value="Under" ${answer==="Under"?"checked":""} ${dis} onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)"> Under</label></div>`;
+  return `<input type="text" value="${answer||""}" ${dis} placeholder="Skriv ditt svar..." style="max-width:280px" onchange="myAnswers[${q.id}]=this.value;if(navigator.vibrate)navigator.vibrate(8);updateNavBadge(Object.keys(myAnswers).length<window._qAllQuestions?.length?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)" oninput="myAnswers[${q.id}]=this.value;updateNavBadge(window._qAllQuestions?(window._qAllQuestions.length-Object.keys(myAnswers).filter(k=>myAnswers[k]!==undefined).length):0)">`;
 }
 let countdownTimer = null;
 function startCountdown(deadline) {
@@ -609,6 +638,33 @@ function startCountdown(deadline) {
   }
   update();
   countdownTimer = setInterval(update, 1000);
+}
+
+
+// ── Toast ──
+let _toastTimer = null;
+function showToast(msg, type='ok') {
+  const el = document.getElementById("toastEl");
+  el.textContent = msg;
+  el.className = 'toast' + (type==='error'?' error':'');
+  clearTimeout(_toastTimer);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => { el.classList.add('show'); });
+  });
+  _toastTimer = setTimeout(() => { el.classList.remove('show'); }, 2800);
+}
+
+// ── Nav badge (unanswered count) ──
+function updateNavBadge(count) {
+  const btn = document.querySelector('#bottomNav button[data-view="questions"]');
+  if (!btn) return;
+  let badge = btn.querySelector('.nav-badge');
+  if (count > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; btn.appendChild(badge); }
+    badge.textContent = count;
+  } else {
+    if (badge) badge.remove();
+  }
 }
 
 function launchConfetti() {
@@ -641,10 +697,9 @@ async function saveAnswers() {
   const answers = Object.entries(myAnswers).map(([qid,answer])=>({question_id:Number(qid),answer}));
   try {
     await api("/api/answers",{method:"POST",body:JSON.stringify({answers})});
-    document.getElementById("saveMsg").innerHTML = `<div class="msg msg-ok">🎉 Dina svar har sparats!</div>`;
+    showToast("🎉 Dina svar har sparats!");
     launchConfetti();
-    setTimeout(()=>document.getElementById("saveMsg").innerHTML="",3000);
-  } catch(e) { document.getElementById("saveMsg").innerHTML = `<div class="msg msg-err">${e.message}</div>`; }
+  } catch(e) { showToast(e.message, 'error'); }
 }
 
 // ── Results ──
@@ -694,6 +749,7 @@ async function loadResults() {
 
 // ── Leaderboard ──
 let lastBoard = [];
+let _lbRefreshTimer = null;
 async function loadLeaderboard() {
   document.querySelector("#lbTable tbody").innerHTML = `<tr><td colspan="5"><div class="loading-wrap"><div class="spinner"></div></div></td></tr>`;
   const { board, prevSnapshot } = await api("/api/leaderboard");
@@ -1241,7 +1297,27 @@ async function clearSnapshot() {
 }
 
 checkAuth();
+
+// ── Swipe between tabs ──
+(function() {
+  const VIEWS = ['questions','results','leaderboard'];
+  let tx = 0, ty = 0;
+  document.getElementById('app').addEventListener('touchstart', e => {
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  }, {passive:true});
+  document.getElementById('app').addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - tx;
+    const dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
+    const views = currentUser?.is_admin ? [...VIEWS,'admin'] : VIEWS;
+    const active = views.find(v => !document.getElementById(v+'View').classList.contains('hidden'));
+    const idx = views.indexOf(active);
+    if (dx < 0 && idx < views.length - 1) showView(views[idx + 1]);
+    else if (dx > 0 && idx > 0) showView(views[idx - 1]);
+  }, {passive:true});
+})();
 </script>
+<div class="toast" id="toastEl"></div>
 <!-- BOTTOM NAV (mobile only) -->
 <nav class="bottom-nav hidden" id="bottomNav">
   <button onclick="showView('questions')" data-view="questions">
