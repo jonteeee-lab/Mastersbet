@@ -11,6 +11,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Mastersbet 2026</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #F0F0F0;
@@ -336,6 +337,18 @@ Bryson DeChambeau"></textarea>
         </div>
         <button class="btn" onclick="addQuestion()">Lägg till</button>
         <div id="aqMsg" style="margin-top:0.5rem"></div>
+      </div>
+      <div class="card">
+        <h3>📥 Importera frågor från Excel</h3>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.8rem">Ladda upp din Excel-fil (.xlsx). Kolumner: <strong>Nr, Fråga, Svarsalternativ, Poäng</strong> + en av <strong>Hela tävlingen / Dag 1 / Dag 2 / Dag 3 / Dag 4</strong> markerad med x.</p>
+        <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+          <label class="btn btn-outline" style="cursor:pointer">
+            📂 Välj fil
+            <input type="file" id="importFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="previewImport(this)">
+          </label>
+          <span id="importFileName" style="font-size:0.85rem;color:var(--text-muted)">Ingen fil vald</span>
+        </div>
+        <div id="importPreview" style="margin-top:0.8rem"></div>
       </div>
       <div class="card">
         <h3>Alla frågor</h3>
@@ -886,6 +899,119 @@ function addEditWeightedOption(qid) {
   row.innerHTML = `<input placeholder="Alternativtext" style="flex:2;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-text-${qid}"><input type="number" placeholder="Poäng" min="0" style="flex:0 0 70px;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-pts-${qid}"><button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 0.3rem">✕</button>`;
   document.getElementById(`eq_wopts_${qid}`).appendChild(row);
 }
+
+// ── Admin: Import från Excel ──
+const DAY_COL_MAP = {'hela tävlingen':5,'dag 1':1,'dag 2':2,'dag 3':3,'dag 4':4};
+
+function previewImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById("importFileName").textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      const parsed = parseImportRows(rows);
+      renderImportPreview(parsed);
+    } catch(err) {
+      document.getElementById("importPreview").innerHTML = `<div class="msg msg-err">Kunde inte läsa filen: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parseImportRows(rows) {
+  // Normalize column names to lowercase
+  const normalized = rows.map(r => {
+    const obj = {};
+    Object.keys(r).forEach(k => { obj[k.toLowerCase().trim()] = String(r[k]).trim(); });
+    return obj;
+  });
+
+  // Find day column: whichever has 'x' marks
+  const dayKeys = Object.keys(normalized[0]||{}).filter(k => DAY_COL_MAP[k] !== undefined);
+
+  const grouped = {};
+  const order = [];
+  normalized.forEach(row => {
+    const nr = row['nr'] || row['#'] || row['nummer'] || '';
+    const text = row['fråga'] || row['fraga'] || row['question'] || '';
+    const opt = row['svarsalternativ'] || row['alternativ'] || row['option'] || '';
+    const pts = parseInt(row['poäng'] || row['poang'] || row['points'] || '1') || 1;
+
+    // Determine day: find which day col has 'x'
+    let day = 5; // default: hela tävlingen
+    for (const dk of dayKeys) {
+      if ((row[dk]||'').toLowerCase() === 'x') { day = DAY_COL_MAP[dk]; break; }
+    }
+
+    const key = nr || text;
+    if (!grouped[key]) {
+      grouped[key] = { nr, text, options: [], day };
+      order.push(key);
+    }
+    if (opt) grouped[key].options.push({ text: opt, points: pts });
+  });
+
+  return order.map(k => grouped[k]).filter(q => q.text);
+}
+
+function renderImportPreview(questions) {
+  const DAY_LABELS_I = ['','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  if (!questions.length) {
+    document.getElementById("importPreview").innerHTML = `<div class="msg msg-err">Hittade inga frågor. Kontrollera att kolumnnamnen stämmer.</div>`;
+    return;
+  }
+  let html = `<p style="font-size:0.85rem;font-weight:600;color:var(--green);margin-bottom:0.6rem">Hittade ${questions.length} frågor – förhandsvisning:</p>`;
+  html += `<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:0.8rem">`;
+  html += `<table class="a-table" style="font-size:0.8rem"><thead><tr><th>#</th><th>Fråga</th><th>Alternativ</th><th>Dag</th></tr></thead><tbody>`;
+  questions.forEach((q,i) => {
+    const opts = q.options.map(o => `${o.text} (${o.points}p)`).join(', ') || '—';
+    html += `<tr><td>${i+1}</td><td>${q.text}</td><td style="color:var(--text-muted)">${opts}</td><td><span style="font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;background:#fff3cd;color:#856404;font-weight:500">${DAY_LABELS_I[q.day]||''}</span></td></tr>`;
+  });
+  html += `</tbody></table></div>`;
+  html += `<button class="btn" onclick="runImport()">✅ Importera ${questions.length} frågor</button>`;
+  html += `<div id="importMsg" style="margin-top:0.5rem"></div>`;
+  document.getElementById("importPreview").innerHTML = html;
+  window._importQuestions = questions;
+}
+
+async function runImport() {
+  const questions = window._importQuestions || [];
+  if (!questions.length) return;
+  const btn = document.querySelector("#importPreview .btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Importerar..."; }
+  const msg = document.getElementById("importMsg");
+  let ok = 0, fail = 0;
+  for (const q of questions) {
+    try {
+      const type = q.options.length > 0 ? 'weighted_choice' : 'exact_value';
+      await api("/api/admin/questions", {method:"POST", body:JSON.stringify({
+        text: q.text,
+        type,
+        options: q.options.length ? q.options : null,
+        points: q.options.length ? Math.max(...q.options.map(o=>o.points)) : 1,
+        day: q.day,
+        sort_order: 0,
+        category: null
+      })});
+      ok++;
+    } catch(e) { fail++; }
+  }
+  msg.innerHTML = fail === 0
+    ? `<div class="msg msg-ok">✅ ${ok} frågor importerades!</div>`
+    : `<div class="msg msg-err">${ok} lyckades, ${fail} misslyckades.</div>`;
+  document.getElementById("importFile").value = "";
+  document.getElementById("importFileName").textContent = "Ingen fil vald";
+  window._importQuestions = [];
+  setTimeout(() => {
+    document.getElementById("importPreview").innerHTML = "";
+    loadAdminQList(); loadGradeList();
+  }, 2000);
+}
+
 async function deleteQuestion(id) {
   if (!confirm("Är du säker? Alla svar på denna fråga raderas.")) return;
   await api(`/api/admin/questions/${id}`,{method:"DELETE"}); loadAdminQList(); loadGradeList();
