@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="Mastersbet">
   <meta name="theme-color" content="#085036">
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/favicon.png">
   <title>Mastersbet 2026</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -347,6 +348,7 @@ Bryson DeChambeau"></textarea>
       <div class="card" style="margin-bottom:0.5rem">
         <p style="font-size:0.9rem;color:var(--text-muted)">Sätt rätt svar för varje fråga. Spara enskilt eller använd "Spara alla" för att rätta allt på en gång.</p>
         <div id="gradeProgress" style="margin-top:0.8rem"></div>
+        <div id="gradeDayFilter" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.8rem"></div>
         <div style="display:flex;gap:0.6rem;align-items:center;margin-top:0.8rem">
           <button class="btn" onclick="saveAllAnswers()">✅ Spara alla svar</button>
           <div id="gradeAllMsg" style="font-size:0.85rem"></div>
@@ -563,7 +565,9 @@ async function loadQuestions() {
     let html = "", lastCat = null;
     filtered.forEach(q => {
       if (q.category && q.category !== lastCat) { html += `<h3 style="margin:1.2rem 0 0.4rem">${q.category}</h3>`; lastCat = q.category; }
-      html += `<div class="q-card"><div class="q-header"><span class="q-text">${q.text}</span><span class="q-pts">${q.points} p</span></div>${renderInput(q, myAnswers[q.id], locked2)}</div>`;
+      const qDayLbl = q.day ? DAY_LABELS[q.day]||'' : '';
+      const qDayBadge = qDayLbl ? `<span style="font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;background:#fff3cd;color:#856404;font-weight:500;margin-left:0.4rem">${qDayLbl}</span>` : '';
+      html += `<div class="q-card"><div class="q-header"><span class="q-text">${q.text}${qDayBadge}</span><span class="q-pts">${q.points} p</span></div>${renderInput(q, myAnswers[q.id], locked2)}</div>`;
     });
     document.getElementById("qList").innerHTML = html || `<p style="color:var(--text-muted)">Inga frågor för denna dag.</p>`;
   };
@@ -888,10 +892,17 @@ async function deleteQuestion(id) {
 }
 
 // ── Admin: Rätta svar ──
+let _gradeAllQs = [];
 async function loadGradeList() {
-  const qs = await api("/api/admin/questions");
+  _gradeAllQs = await api("/api/admin/questions");
+  renderGradeList(-1);
+}
+function renderGradeList(activeDay) {
+  const qs = _gradeAllQs;
   const c = document.getElementById("gradeList");
   if (!qs.length) { c.innerHTML=`<p style="color:var(--text-muted)">Inga frågor ännu.</p>`; return; }
+  const GRADE_DAY_LABELS = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  // Progress bar (always over all questions)
   const graded = qs.filter(q => q.correct_answer !== null && q.correct_answer !== undefined && q.correct_answer !== "").length;
   const total = qs.length;
   const pct = Math.round((graded/total)*100);
@@ -903,8 +914,22 @@ async function loadGradeList() {
       </div>
       <span style="font-size:0.85rem;font-weight:600;color:${pct===100?"var(--correct)":"var(--green)"};white-space:nowrap">${graded}/${total} rättade</span>
     </div>`;
-  c.innerHTML = qs.map(q => {
+  // Day filter buttons
+  const daysUsedG = [...new Set(qs.map(q => q.day>0?q.day:5))].sort((a,b)=>a-b);
+  const filterEl = document.getElementById("gradeDayFilter");
+  if (filterEl) {
+    if (daysUsedG.length <= 1) { filterEl.innerHTML = ""; }
+    else {
+      filterEl.innerHTML = [-1, ...daysUsedG].map(d =>
+        `<button class="day-filter-btn${activeDay===d?' active':''}" onclick="renderGradeList(${d})">${d===-1?'Alla':GRADE_DAY_LABELS[d]||'Dag '+d}</button>`
+      ).join("");
+    }
+  }
+  // Filter questions
+  const filtered = activeDay===-1 ? qs : activeDay===5 ? qs.filter(q=>(q.day||0)===0||(q.day||0)===5) : qs.filter(q=>(q.day||0)===activeDay);
+  c.innerHTML = filtered.map(q => {
     const hasAns = q.correct_answer !== null && q.correct_answer !== undefined && q.correct_answer !== "";
+    const dayLabel = GRADE_DAY_LABELS[q.day||0] || '';
     return `<div class="grade-card ${hasAns?"has-answer":"no-answer"}">
       <div class="q-header" style="margin-bottom:0.5rem">
         <span class="q-text">${q.text}</span>
@@ -913,6 +938,7 @@ async function loadGradeList() {
       <div class="flex-gap" style="margin-bottom:0.5rem">
         <span class="type-badge">${q.type}</span>
         ${q.category?`<span class="cat-badge">${q.category}</span>`:""}
+        ${dayLabel?`<span style="font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;background:#fff3cd;color:#856404;font-weight:500">${dayLabel}</span>`:""}
       </div>
       <div class="flex-gap">
         ${gradeInput(q)}
@@ -921,7 +947,7 @@ async function loadGradeList() {
       </div>
       <div id="gradeMsg_${q.id}" style="margin-top:0.3rem;font-size:0.8rem"></div>
     </div>`;
-  }).join("");
+  }).join("") || `<p style="color:var(--text-muted);padding:1rem 0">Inga frågor för denna dag.</p>`;
 }
 function gradeInput(q) {
   const cur = q.correct_answer || "";
