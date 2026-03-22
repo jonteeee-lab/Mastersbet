@@ -208,6 +208,11 @@
     .radio-group label { transition: background 0.1s, transform 0.08s; -webkit-tap-highlight-color: transparent; }
     .radio-group label:active { background: rgba(8,80,54,0.12); transform: scale(0.985); }
     .radio-group label:has(input:checked) { background: rgba(8,80,54,0.07); font-weight: 600; }
+
+    /* ── Day filter ── */
+    .day-filter-btn { background: var(--bg-card); border: 1px solid var(--border-dark); color: var(--text-muted); padding: 0.3rem 0.75rem; border-radius: 20px; cursor: pointer; font-family: inherit; font-size: 0.8rem; font-weight: 500; transition: all 0.15s; white-space: nowrap; }
+    .day-filter-btn:hover { border-color: var(--green); color: var(--green); }
+    .day-filter-btn.active { background: var(--green); border-color: var(--green); color: white; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -255,6 +260,7 @@
   <div id="questionsView" class="hidden">
     <div id="deadlineBanner"></div>
     <div class="stats-bar" id="qStats"></div>
+    <div id="qDayFilter" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.7rem"></div>
     <div id="qList"></div>
     <button class="btn" id="saveBtn" onclick="saveAnswers()" style="margin-top:0.8rem">Spara mina svar</button>
     <div id="saveMsg" style="margin-top:0.5rem"></div>
@@ -263,6 +269,7 @@
   <!-- RESULTS -->
   <div id="resultsView" class="hidden">
     <div class="stats-bar" id="rStats"></div>
+    <div id="rDayFilter" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.7rem"></div>
     <div id="rList"></div>
   </div>
 
@@ -312,6 +319,7 @@
           <div class="form-group" style="flex:1;min-width:70px" id="aqPointsGroup"><label>Poäng</label><input type="number" id="aqPoints" value="1" min="1"></div>
           <div class="form-group" style="flex:1;min-width:110px"><label>Kategori</label><input type="text" id="aqCategory" placeholder="T.ex. Vinnare"></div>
           <div class="form-group" style="flex:1;min-width:70px"><label>Ordning</label><input type="number" id="aqOrder" value="0"></div>
+          <div class="form-group" style="flex:1;min-width:120px"><label>Dag</label><select id="aqDay"><option value="5" selected>Hela tävlingen</option><option value="1">Dag 1 (tors)</option><option value="2">Dag 2 (fre)</option><option value="3">Dag 3 (lör)</option><option value="4">Dag 4 (sön)</option></select></div>
         </div>
         <div class="form-group" id="aqOptionsGroup">
           <label>Svarsalternativ (ett per rad)</label>
@@ -537,12 +545,30 @@ async function loadQuestions() {
     <div class="stat-card"><div class="val">${qs.length}</div><div class="lbl">Frågor</div></div>
     <div class="stat-card"><div class="val">${answered}</div><div class="lbl">Besvarade</div></div>
     <div class="stat-card"><div class="val">${qs.reduce((s,q)=>s+q.points,0)}</div><div class="lbl">Max poäng</div></div>`;
-  let html = "", lastCat = null;
-  qs.forEach(q => {
-    if (q.category && q.category !== lastCat) { html += `<h3 style="margin:1.2rem 0 0.4rem">${q.category}</h3>`; lastCat = q.category; }
-    html += `<div class="q-card"><div class="q-header"><span class="q-text">${q.text}</span><span class="q-pts">${q.points} p</span></div>${renderInput(q, myAnswers[q.id], locked)}</div>`;
-  });
-  document.getElementById("qList").innerHTML = html || `<p style="color:var(--text-muted)">Inga frågor har lagts till ännu.</p>`;
+  // Build day filter
+  const DAY_LABELS = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  const daysUsed = [...new Set(qs.map(q => q.day>0?q.day:5))].sort((a,b)=>a-b);
+  window._qAllQuestions = qs; window._qLocked = locked;
+  function renderQDayFilter(activeDay) {
+    const filterEl = document.getElementById("qDayFilter");
+    if (daysUsed.length <= 1) { filterEl.innerHTML = ""; return; }
+    filterEl.innerHTML = [-1, ...daysUsed.filter(d=>d>0)].map(d =>
+      `<button class="day-filter-btn${activeDay===d?' active':''}" onclick="filterQByDay(${d})">${d===-1?'Alla':DAY_LABELS[d]||'Dag '+d}</button>`
+    ).join("");
+  }
+  window.filterQByDay = function(day) {
+    const allQs = window._qAllQuestions, locked2 = window._qLocked;
+    const filtered = day===-1 ? allQs : day===5 ? allQs.filter(q=>(q.day||0)===0||(q.day||0)===5) : allQs.filter(q=>(q.day||0)===day);
+    renderQDayFilter(day);
+    let html = "", lastCat = null;
+    filtered.forEach(q => {
+      if (q.category && q.category !== lastCat) { html += `<h3 style="margin:1.2rem 0 0.4rem">${q.category}</h3>`; lastCat = q.category; }
+      html += `<div class="q-card"><div class="q-header"><span class="q-text">${q.text}</span><span class="q-pts">${q.points} p</span></div>${renderInput(q, myAnswers[q.id], locked2)}</div>`;
+    });
+    document.getElementById("qList").innerHTML = html || `<p style="color:var(--text-muted)">Inga frågor för denna dag.</p>`;
+  };
+  renderQDayFilter(-1);
+  window.filterQByDay(-1);
 }
 function renderInput(q, answer, disabled) {
   const dis = disabled ? "disabled" : "";
@@ -608,22 +634,45 @@ async function saveAnswers() {
 async function loadResults() {
   document.getElementById("rList").innerHTML = `<div class="loading-wrap"><div class="spinner"></div></div>`;
   const data = await api("/api/results");
-  document.getElementById("rStats").innerHTML = `
-    <div class="stat-card"><div class="val">${data.earnedPoints}</div><div class="lbl">Dina poäng</div></div>
-    <div class="stat-card"><div class="val">${data.totalPoints}</div><div class="lbl">Max poäng</div></div>
-    <div class="stat-card"><div class="val">${data.results.filter(r=>r.correct===true).length}/${data.results.filter(r=>r.correct_answer!==null).length}</div><div class="lbl">Rätt svar</div></div>`;
-  let html = "";
-  data.results.forEach(r => {
-    const cls = r.correct===true?"r-correct":r.correct===false?"r-wrong":"r-pending";
-    const badge = r.correct===true?`<span class="badge badge-ok">Rätt</span>`:r.correct===false?`<span class="badge badge-no">Fel</span>`:`<span class="badge badge-wait">Väntar</span>`;
-    html += `<div class="q-card ${cls}"><div class="q-header"><span class="q-text">${r.text}</span><span class="q-pts">${r.points} p</span></div>
-      <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-top:0.4rem;font-size:0.9rem">
-        <span><strong>Ditt svar:</strong> ${r.my_answer||"<em style=color:var(--text-muted)>Ej besvarat</em>"}</span>
-        ${r.correct_answer!==null?`<span><strong>Rätt svar:</strong> ${r.correct_answer}</span>`:""}
-        ${badge}
-      </div></div>`;
-  });
-  document.getElementById("rList").innerHTML = html || `<p style="color:var(--text-muted)">Inga resultat ännu.</p>`;
+  const DAY_LABELS_R = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  // Build day filter
+  const daysUsedR = [...new Set(data.results.map(r => r.day>0?r.day:5))].sort((a,b)=>a-b);
+  function renderRDayFilter(activeDay) {
+    const filterEl = document.getElementById("rDayFilter");
+    if (daysUsedR.length <= 1) { filterEl.innerHTML = ""; return; }
+    filterEl.innerHTML = [-1, ...daysUsedR.filter(d=>d>0)].map(d =>
+      `<button class="day-filter-btn${activeDay===d?' active':''}" onclick="filterRByDay(${d})">${d===-1?'Alla':DAY_LABELS_R[d]||'Dag '+d}</button>`
+    ).join("");
+  }
+  function renderRStats(results) {
+    document.getElementById("rStats").innerHTML = `
+      <div class="stat-card"><div class="val">${results.reduce((s,r)=>s+(r.pointsEarned||0),0)}</div><div class="lbl">Dina poäng</div></div>
+      <div class="stat-card"><div class="val">${data.totalPoints}</div><div class="lbl">Max poäng</div></div>
+      <div class="stat-card"><div class="val">${results.filter(r=>r.correct===true).length}/${results.filter(r=>r.correct_answer!==null).length}</div><div class="lbl">Rätt svar</div></div>`;
+  }
+  function renderRList(results) {
+    let html = "";
+    results.forEach(r => {
+      const cls = r.correct===true?"r-correct":r.correct===false?"r-wrong":"r-pending";
+      const badge = r.correct===true?`<span class="badge badge-ok">Rätt ✓</span>`:r.correct===false?`<span class="badge badge-no">Fel ✗</span>`:`<span class="badge badge-wait">Väntar</span>`;
+      const dayLabel = `<span style="font-size:0.72rem;color:var(--text-muted);margin-left:0.3rem">${DAY_LABELS_R[r.day||0]}</span>`;
+      html += `<div class="q-card ${cls}"><div class="q-header"><span class="q-text">${r.text}${dayLabel}</span><span class="q-pts">${r.points} p</span></div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-top:0.4rem;font-size:0.9rem">
+          <span><strong>Ditt svar:</strong> ${r.my_answer||"<em style=color:var(--text-muted)>Ej besvarat</em>"}</span>
+          ${r.correct_answer!==null?`<span><strong>Rätt svar:</strong> ${r.correct_answer}</span>`:""}
+          ${badge}
+        </div></div>`;
+    });
+    document.getElementById("rList").innerHTML = html || `<p style="color:var(--text-muted)">Inga resultat för denna dag.</p>`;
+  }
+  window.filterRByDay = function(day) {
+    const filtered = day===-1 ? data.results : day===5 ? data.results.filter(r=>(r.day||0)===0||(r.day||0)===5) : data.results.filter(r=>(r.day||0)===day);
+    renderRDayFilter(day);
+    renderRStats(filtered);
+    renderRList(filtered);
+  };
+  renderRDayFilter(-1);
+  window.filterRByDay(-1);
 }
 
 // ── Leaderboard ──
@@ -745,6 +794,7 @@ async function addQuestion() {
   const text=document.getElementById("aqText").value.trim(), type=document.getElementById("aqType").value;
   const points=parseInt(document.getElementById("aqPoints").value)||1;
   const category=document.getElementById("aqCategory").value, sort_order=parseInt(document.getElementById("aqOrder").value)||0;
+  const day=parseInt(document.getElementById("aqDay").value)||0;
   let options=null;
   if (type==="multiple_choice"||type==="over_under") {
     options = document.getElementById("aqOptions").value.split("\n").map(s=>s.trim()).filter(Boolean);
@@ -753,7 +803,7 @@ async function addQuestion() {
     if (!options.length) { document.getElementById("aqMsg").innerHTML=`<div class="msg msg-err">Lägg till minst ett alternativ</div>`; return; }
   }
   try {
-    await api("/api/admin/questions",{method:"POST",body:JSON.stringify({text,type,options,points,category,sort_order})});
+    await api("/api/admin/questions",{method:"POST",body:JSON.stringify({text,type,options,points,category,sort_order,day})});
     document.getElementById("aqText").value=""; document.getElementById("aqOptions").value="";
     document.getElementById("aqWeightedList").innerHTML=""; weightedOptCount=0;
     document.getElementById("aqMsg").innerHTML=`<div class="msg msg-ok">Fråga tillagd!</div>`;
@@ -772,6 +822,7 @@ async function loadAdminQList() {
         <div class="flex-gap" style="margin-bottom:0.4rem">
           <span class="type-badge">${q.type}</span>
           ${q.category?`<span class="cat-badge">${q.category}</span>`:""}
+          ${q.day?`<span style="font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;background:#fff3cd;color:#856404;font-weight:500">${['','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävl.'][q.day]||''}</span>`:""}
           ${q.correct_answer?`<span class="ans-badge">Svar: ${q.correct_answer}</span>`:`<span class="noans-badge">Ej rättat</span>`}
         </div>
         <div class="flex-gap">
@@ -785,6 +836,7 @@ async function loadAdminQList() {
           <div class="form-group" style="flex:1;min-width:100px"><label>Poäng</label><input type="number" id="eq_pts_${q.id}" value="${q.points}" min="1"></div>
           <div class="form-group" style="flex:1;min-width:100px"><label>Kategori</label><input id="eq_cat_${q.id}" value="${q.category||''}"></div>
           <div class="form-group" style="flex:1;min-width:100px"><label>Ordning</label><input type="number" id="eq_ord_${q.id}" value="${q.sort_order||0}"></div>
+          <div class="form-group" style="flex:1;min-width:110px"><label>Dag</label><select id="eq_day_${q.id}"><option value="5" ${(q.day||0)===0||q.day===5?"selected":""}>Hela tävlingen</option><option value="1" ${q.day===1?"selected":""}>Dag 1 (tors)</option><option value="2" ${q.day===2?"selected":""}>Dag 2 (fre)</option><option value="3" ${q.day===3?"selected":""}>Dag 3 (lör)</option><option value="4" ${q.day===4?"selected":""}>Dag 4 (sön)</option></select></div>
         </div>
         ${q.type==='multiple_choice'?`<div class="form-group"><label>Alternativ (kommaseparerade)</label><input id="eq_opts_${q.id}" value="${(q.options||[]).join(', ')}"></div>`:''}
         ${q.type==='weighted_choice'?`<div class="form-group"><label style="font-weight:500;font-size:0.85rem;color:#444;display:block;margin-bottom:0.4rem">Alternativ med poäng</label><div id="eq_wopts_${q.id}">${(q.options||[]).map((o,i)=>`<div style="display:flex;gap:0.4rem;margin-bottom:0.35rem;align-items:center"><input placeholder="Alternativtext" value="${o.text}" style="flex:2;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-text-${q.id}"><input type="number" placeholder="Poäng" value="${o.points}" style="flex:0 0 70px;padding:0.4rem 0.6rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)" class="eq-wopt-pts-${q.id}"><button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:0 0.3rem">✕</button></div>`).join('')}</div><button type="button" onclick="addEditWeightedOption(${q.id})" class="btn btn-sm btn-outline" style="margin-top:0.3rem">+ Lägg till</button></div>`:''}
@@ -810,6 +862,7 @@ async function saveEditQuestion(id, type) {
   const points = parseInt(document.getElementById(`eq_pts_${id}`).value)||1;
   const category = document.getElementById(`eq_cat_${id}`).value.trim()||null;
   const sort_order = parseInt(document.getElementById(`eq_ord_${id}`).value)||0;
+  const day = parseInt(document.getElementById(`eq_day_${id}`)?.value)||0;
   const optsEl = document.getElementById(`eq_opts_${id}`);
   let options = optsEl ? optsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : null;
   if (type === 'weighted_choice') {
@@ -819,7 +872,7 @@ async function saveEditQuestion(id, type) {
   }
   const existing = (await api("/api/admin/questions")).find(q=>q.id===id);
   await api(`/api/admin/questions/${id}`,{method:"PUT",body:JSON.stringify({
-    text, type, options, points, category, sort_order, correct_answer: existing?.correct_answer||null
+    text, type, options, points, category, sort_order, day, correct_answer: existing?.correct_answer||null
   })});
   loadAdminQList(); loadGradeList();
 }
