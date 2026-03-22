@@ -26,9 +26,12 @@ async function initDb() {
       correct_answer TEXT,
       category TEXT,
       sort_order INTEGER DEFAULT 0,
+      day INTEGER DEFAULT 0,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Migration: add day column if missing
+  await pool.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS day INTEGER DEFAULT 0`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS answers (
       id SERIAL PRIMARY KEY,

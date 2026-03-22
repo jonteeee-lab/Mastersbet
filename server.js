@@ -76,7 +76,7 @@ app.get('/api/settings', async (req, res) => {
 // ── Questions ──
 app.get('/api/questions', auth, async (req, res) => {
   try {
-    const qs = await all('SELECT id, text, type, options, points, category, sort_order FROM questions ORDER BY sort_order, id');
+    const qs = await all('SELECT id, text, type, options, points, category, sort_order, day FROM questions ORDER BY sort_order, id');
     qs.forEach(q => { if (q.options) q.options = JSON.parse(q.options); });
     res.json(qs);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -114,7 +114,7 @@ app.post('/api/answers', auth, async (req, res) => {
 app.get('/api/results', auth, async (req, res) => {
   try {
     const rows = await all(`
-      SELECT q.id, q.text, q.type, q.options, q.points, q.correct_answer, q.category, a.answer as my_answer
+      SELECT q.id, q.text, q.type, q.options, q.points, q.correct_answer, q.category, q.day, a.answer as my_answer
       FROM questions q
       LEFT JOIN answers a ON a.question_id = q.id AND a.user_id = ?
       ORDER BY q.sort_order, q.id
@@ -226,19 +226,19 @@ app.get('/api/admin/questions', adminAuth, async (req, res) => {
 
 app.post('/api/admin/questions', adminAuth, async (req, res) => {
   try {
-    const { text, type, options, points, category, sort_order } = req.body;
+    const { text, type, options, points, category, sort_order, day } = req.body;
     if (!text || !type) return res.status(400).json({ error: 'Text och typ krävs' });
-    await run('INSERT INTO questions (text, type, options, points, category, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-      [text, type, options ? JSON.stringify(options) : null, points||1, category||null, sort_order||0]);
+    await run('INSERT INTO questions (text, type, options, points, category, sort_order, day) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [text, type, options ? JSON.stringify(options) : null, points||1, category||null, sort_order||0, day||0]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/admin/questions/:id', adminAuth, async (req, res) => {
   try {
-    const { text, type, options, points, correct_answer, category, sort_order } = req.body;
-    await run('UPDATE questions SET text=?, type=?, options=?, points=?, correct_answer=?, category=?, sort_order=? WHERE id=?',
-      [text, type, options ? JSON.stringify(options) : null, points||1, correct_answer||null, category||null, sort_order||0, req.params.id]);
+    const { text, type, options, points, correct_answer, category, sort_order, day } = req.body;
+    await run('UPDATE questions SET text=?, type=?, options=?, points=?, correct_answer=?, category=?, sort_order=?, day=? WHERE id=?',
+      [text, type, options ? JSON.stringify(options) : null, points||1, correct_answer||null, category||null, sort_order||0, day||0, req.params.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
