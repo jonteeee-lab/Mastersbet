@@ -314,6 +314,15 @@
     </div>
   </div>
 
+  <!-- ALL ANSWERS -->
+  <div id="allAnswersView" class="hidden">
+    <div class="card" style="margin-bottom:0.8rem;background:var(--green);color:white">
+      <div style="font-size:0.8rem;opacity:0.8;margin-bottom:0.2rem">Poolen är låst</div>
+      <div style="font-size:1.1rem;font-weight:700">Alla deltagares svar är nu synliga</div>
+    </div>
+    <div id="allAnswersList"></div>
+  </div>
+
   <!-- ADMIN -->
   <div id="adminView" class="hidden">
     <div class="tabs" id="adminTabs">
@@ -517,22 +526,26 @@ function onLogin() {
   document.getElementById("mainHeader").classList.remove("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("userInfo").textContent = currentUser.name;
-  buildNav(); loadSettings().then(() => showView("questions"));
+  loadSettings().then(() => { buildNav(); showView("questions"); });
 }
 function buildNav() {
   const nav = document.getElementById("nav");
   let h = `<button onclick="showView('questions')">Frågor</button><button onclick="showView('results')">Mina resultat</button><button onclick="showView('leaderboard')">Leaderboard</button>`;
+  const locked = settings.locked==="1" || new Date(settings.deadline) < new Date();
+  if (locked) h += `<button onclick="showView('allAnswers')" id="navAllAnswers">👥 Alla svar</button>`;
   if (currentUser.is_admin) h += `<button onclick="showView('admin')">Admin</button>`;
   h += `<button onclick="logout()">Logga ut</button>`;
   nav.innerHTML = h;
-  // Bottom nav: show/hide admin button
+  // Bottom nav: show/hide admin + allAnswers buttons
   if (currentUser.is_admin) document.getElementById("bnAdmin").classList.remove("hidden");
+  const isLocked = settings.locked==="1" || new Date(settings.deadline) < new Date();
+  if (isLocked) document.getElementById("bnAllAnswers").classList.remove("hidden");
   document.getElementById("bottomNav").classList.remove("hidden");
 }
 
 // ── Views ──
 function hideAllViews() {
-  ["authView","questionsView","resultsView","leaderboardView","adminView"].forEach(v => document.getElementById(v).classList.add("hidden"));
+  ["authView","questionsView","resultsView","leaderboardView","allAnswersView","adminView"].forEach(v => document.getElementById(v).classList.add("hidden"));
 }
 function showView(name) {
   hideAllViews();
@@ -559,6 +572,7 @@ function showView(name) {
     clearInterval(_lbRefreshTimer);
   }
   if (name==="admin") { loadAdminQList(); loadGradeList(); loadAdminUsers(); loadParticipantSelect(); }
+  if (name==="allAnswers") loadAllAnswers();
 }
 
 // ── Settings ──
@@ -745,6 +759,73 @@ async function loadResults() {
   };
   renderRDayFilter(-1);
   window.filterRByDay(-1);
+}
+
+
+// ── Alla svar ──
+async function loadAllAnswers() {
+  const c = document.getElementById("allAnswersList");
+  c.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
+  try {
+    const { questions, participants } = await api("/api/allAnswers");
+    const DAY_LABELS_A = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+
+    // Group questions by day
+    const days = [...new Set(questions.map(q => q.day>0?q.day:5))].sort((a,b)=>a-b);
+
+    // Build participant accordion
+    let html = '';
+    participants.forEach((p, pi) => {
+      const isMe = p.name === currentUser?.name;
+      const ansMap = {};
+      p.answers.forEach(a => { ansMap[a.question_id] = a.answer; });
+      const answered = p.answers.filter(a => a.answer).length;
+
+      html += `<div class="card" style="padding:0;overflow:hidden;margin-bottom:0.6rem">
+        <button onclick="toggleParticipant(${pi})" style="width:100%;background:none;border:none;cursor:pointer;padding:0.9rem 1rem;display:flex;justify-content:space-between;align-items:center;font-family:inherit;text-align:left">
+          <span style="font-weight:600;font-size:0.95rem">${p.name}${isMe?' <span style="font-size:0.72rem;color:var(--green)">(du)</span>':''}</span>
+          <span style="display:flex;align-items:center;gap:0.6rem">
+            <span style="font-size:0.75rem;color:var(--text-muted)">${answered}/${questions.length} svar</span>
+            <span id="arrow_${pi}" style="color:var(--text-muted);font-size:0.8rem;transition:transform 0.2s">▼</span>
+          </span>
+        </button>
+        <div id="pdetail_${pi}" style="display:${isMe?'block':'none'};border-top:1px solid var(--border)">`;
+
+      days.forEach(d => {
+        const dayQs = questions.filter(q => (q.day>0?q.day:5) === d);
+        if (!dayQs.length) return;
+        html += `<div style="padding:0.5rem 1rem 0.2rem;font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">${DAY_LABELS_A[d]}</div>`;
+        dayQs.forEach(q => {
+          const ans = ansMap[q.id];
+          html += `<div style="padding:0.45rem 1rem;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:baseline;gap:0.5rem">
+            <span style="font-size:0.85rem;color:var(--text);flex:1">${q.text}</span>
+            <span style="font-size:0.85rem;font-weight:600;color:${ans?'var(--green)':'var(--text-muted)'};white-space:nowrap">${ans || '—'}</span>
+          </div>`;
+        });
+      });
+
+      html += `</div></div>`;
+    });
+
+    c.innerHTML = html || '<p style="color:var(--text-muted)">Inga deltagare.</p>';
+
+    // Expand own row after render
+    if (participants.findIndex(p => p.name === currentUser?.name) !== -1) {
+      const myIdx = participants.findIndex(p => p.name === currentUser?.name);
+      const arrow = document.getElementById(`arrow_${myIdx}`);
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+    }
+  } catch(e) {
+    c.innerHTML = `<div class="msg msg-err">${e.message}</div>`;
+  }
+}
+
+function toggleParticipant(idx) {
+  const el = document.getElementById(`pdetail_${idx}`);
+  const arrow = document.getElementById(`arrow_${idx}`);
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 // ── Leaderboard ──
@@ -1331,6 +1412,10 @@ checkAuth();
   <button onclick="showView('leaderboard')" data-view="leaderboard">
     <span class="nav-icon">🏆</span>
     <span>Ledartavla</span>
+  </button>
+  <button id="bnAllAnswers" onclick="showView('allAnswers')" data-view="allAnswers" class="hidden">
+    <span class="nav-icon">👥</span>
+    <span>Alla svar</span>
   </button>
   <button id="bnAdmin" onclick="showView('admin')" data-view="admin" class="hidden">
     <span class="nav-icon">⚙️</span>
