@@ -645,7 +645,7 @@ function startCountdown(deadline) {
     const el = document.getElementById("countdown");
     if (!el) { clearInterval(countdownTimer); return; }
     const diff = deadline - new Date();
-    if (diff <= 0) { el.textContent = "Deadline passerad!"; clearInterval(countdownTimer); return; }
+    if (diff <= 0) { el.textContent = "Deadline passerad!"; clearInterval(countdownTimer); buildNav(); return; }
     const d = Math.floor(diff/86400000), h = Math.floor((diff%86400000)/3600000);
     const m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000);
     el.textContent = d>0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`;
@@ -1155,12 +1155,13 @@ async function deleteQuestion(id) {
 }
 
 // ── Admin: Rätta svar ──
-let _gradeAllQs = [];
+let _gradeAllQs = [], _gradeActiveDay = -1;
 async function loadGradeList() {
   _gradeAllQs = await api("/api/admin/questions");
   renderGradeList(-1);
 }
 function renderGradeList(activeDay) {
+  _gradeActiveDay = activeDay;
   const qs = _gradeAllQs;
   const c = document.getElementById("gradeList");
   if (!qs.length) { c.innerHTML=`<p style="color:var(--text-muted)">Inga frågor ännu.</p>`; return; }
@@ -1251,7 +1252,7 @@ async function saveAllAnswers() {
   }
   const msg = document.getElementById("gradeAllMsg");
   msg.innerHTML = `<span style="color:var(--correct)">✓ ${saved} sparade${skipped>0?`, ${skipped} hoppades över`:""}</span>`;
-  setTimeout(()=>{ msg.innerHTML=""; loadGradeList(); loadAdminQList(); }, 2000);
+  setTimeout(async ()=>{ msg.innerHTML=""; _gradeAllQs = await api("/api/admin/questions"); renderGradeList(_gradeActiveDay); loadAdminQList(); }, 2000);
 }
 async function saveCorrectAnswer(id) {
   const el = document.getElementById(`grade_${id}`);
@@ -1260,12 +1261,12 @@ async function saveCorrectAnswer(id) {
   const q = (await api("/api/admin/questions")).find(q=>q.id===id);
   await api(`/api/admin/questions/${id}`,{method:"PUT",body:JSON.stringify({...q, correct_answer:answer, options:q.options||undefined})});
   document.getElementById(`gradeMsg_${id}`).innerHTML=`<span style="color:var(--correct)">✓ Sparat</span>`;
-  setTimeout(()=>{document.getElementById(`gradeMsg_${id}`).innerHTML=""; loadGradeList(); loadAdminQList();},1200);
+  setTimeout(async ()=>{document.getElementById(`gradeMsg_${id}`) && (document.getElementById(`gradeMsg_${id}`).innerHTML=""); _gradeAllQs = await api("/api/admin/questions"); renderGradeList(_gradeActiveDay); loadAdminQList();},1200);
 }
 async function clearCorrectAnswer(id) {
   const q = (await api("/api/admin/questions")).find(q=>q.id===id);
   await api(`/api/admin/questions/${id}`,{method:"PUT",body:JSON.stringify({...q, correct_answer:null, options:q.options||undefined})});
-  loadGradeList(); loadAdminQList();
+  _gradeAllQs = await api("/api/admin/questions"); renderGradeList(_gradeActiveDay); loadAdminQList();
 }
 
 // ── Admin: Deltagarsvar ──
@@ -1387,6 +1388,7 @@ checkAuth();
     tx = e.touches[0].clientX; ty = e.touches[0].clientY;
   }, {passive:true});
   document.getElementById('app').addEventListener('touchend', e => {
+    if (e.target.closest('input, select, textarea, .tabs, .day-filter-btn, .bottom-nav')) return;
     const dx = e.changedTouches[0].clientX - tx;
     const dy = e.changedTouches[0].clientY - ty;
     if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
