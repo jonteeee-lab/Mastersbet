@@ -56,6 +56,18 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sidebets (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      stake INTEGER NOT NULL,
+      creator_id INTEGER NOT NULL REFERENCES users(id),
+      acceptor_id INTEGER REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'open',
+      winner_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   // Default settings
   await pool.query(`
     INSERT INTO settings (key, value) VALUES
