@@ -421,6 +421,10 @@ Bryson DeChambeau"></textarea>
 
     <!-- Admin: Deltagarsvar -->
     <div id="adminParticipants" class="hidden">
+      <div class="card" style="margin-bottom:0.8rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+        <span style="font-weight:600;font-size:0.9rem">Exportera alla svar</span>
+        <button class="btn btn-sm btn-outline" onclick="exportAllAnswersCsv()">⬇ CSV — alla deltagare</button>
+      </div>
       <div class="card">
         <div class="form-group">
           <label>Välj deltagare</label>
@@ -991,6 +995,31 @@ async function loadLeaderboard() {
     const rowStyle = isMe ? "background:rgba(8,80,54,0.07);font-weight:600;" : "";
     return `<tr style="${rowStyle}"><td class="${cls}">${i+1}</td><td class="${cls}">${p.name}${isMe?' <span style="font-size:0.7rem;color:var(--green)">(du)</span>':''}${moveBadge}</td><td><strong>${p.points}</strong></td><td>${p.correctCount}</td><td>${p.answered}</td></tr>`;
   }).join("");
+}
+
+async function exportAllAnswersCsv() {
+  try {
+    const [users, questions] = await Promise.all([
+      api("/api/admin/users"),
+      api("/api/admin/questions")
+    ]);
+    const nonAdmins = users.filter(u => !u.is_admin);
+    // Fetch answers for each user
+    const allData = await Promise.all(nonAdmins.map(u => api(`/api/admin/users/${u.id}/answers`)));
+    // Build header row
+    const header = ["Deltagare", ...questions.map(q => `"${q.text.replace(/"/g,'""')}"`)];
+    const rows = [header];
+    nonAdmins.forEach((u, i) => {
+      const answerMap = {};
+      (allData[i] || []).forEach(a => { answerMap[a.question_id] = a.answer; });
+      rows.push([u.name, ...questions.map(q => answerMap[q.id] || "")]);
+    });
+    const csv = rows.map(r => r.join(";")).join("\n");
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent(csv);
+    a.download = "mastersbet_alla_svar.csv";
+    a.click();
+  } catch(e) { showToast(e.message, 'error'); }
 }
 
 function exportCsv() {
