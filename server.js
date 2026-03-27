@@ -360,6 +360,82 @@ app.delete('/api/admin/users/:userId/answers/:questionId', adminAuth, async (req
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Sidebets ──────────────────────────────────────────────────────────────────
+
+// List all sidebets with creator/acceptor/winner names
+app.get('/api/sidebets', auth, async (req, res) => {
+  try {
+    const rows = await all(`
+      SELECT s.id, s.title, s.stake, s.status, s.created_at,
+        s.creator_id, uc.name AS creator_name,
+        s.acceptor_id, ua.name AS acceptor_name,
+        s.winner_id, uw.name AS winner_name
+      FROM sidebets s
+      JOIN users uc ON uc.id = s.creator_id
+      LEFT JOIN users ua ON ua.id = s.acceptor_id
+      LEFT JOIN users uw ON uw.id = s.winner_id
+      ORDER BY s.created_at DESC
+    `);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Create a sidebet
+app.post('/api/sidebets', auth, async (req, res) => {
+  try {
+    const { title, stake } = req.body;
+    if (!title || !stake || stake < 1) return res.status(400).json({ error: 'Titel och insats krävs' });
+    await run('INSERT INTO sidebets (title, stake, creator_id) VALUES (?, ?, ?)',
+      [title.trim(), parseInt(stake), req.user.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Accept a sidebet
+app.post('/api/sidebets/:id/accept', auth, async (req, res) => {
+  try {
+    const bet = await get('SELECT * FROM sidebets WHERE id = ?', [req.params.id]);
+    if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
+    if (bet.status !== 'open') return res.status(400).json({ error: 'Bettet är inte öppet' });
+    if (bet.creator_id === req.user.id) return res.status(400).json({ error: 'Du kan inte acceptera ditt eget bet' });
+    // Check if pool is locked
+    const locked = await get("SELECT value FROM settings WHERE key='locked'");
+    const deadline = await get("SELECT value FROM settings WHERE key='deadline'");
+    const isLocked = locked?.value === '1' || new Date(deadline?.value) < new Date();
+    if (isLocked) return res.status(403).json({ error: 'Poolen är låst' });
+    await run("UPDATE sidebets SET acceptor_id = ?, status = 'matched' WHERE id = ?",
+      [req.user.id, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Withdraw own open sidebet
+app.post('/api/sidebets/:id/withdraw', auth, async (req, res) => {
+  try {
+    const bet = await get('SELECT * FROM sidebets WHERE id = ?', [req.params.id]);
+    if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
+    if (bet.creator_id !== req.user.id) return res.status(403).json({ error: 'Inte ditt bet' });
+    if (bet.status !== 'open') return res.status(400).json({ error: 'Kan bara ta tillbaka öppna bets' });
+    await run('DELETE FROM sidebets WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin: set winner
+app.post('/api/admin/sidebets/:id/winner', adminAuth, async (req, res) => {
+  try {
+    const { winner_id } = req.body;
+    const bet = await get('SELECT * FROM sidebets WHERE id = ?', [req.params.id]);
+    if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
+    if (bet.status !== 'matched') return res.status(400).json({ error: 'Bettet är inte matchat' });
+    if (winner_id !== bet.creator_id && winner_id !== bet.acceptor_id)
+      return res.status(400).json({ error: 'Ogiltig vinnare' });
+    await run("UPDATE sidebets SET winner_id = ?, status = 'settled' WHERE id = ?",
+      [winner_id, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
