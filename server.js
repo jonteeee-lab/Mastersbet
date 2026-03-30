@@ -202,6 +202,34 @@ app.get('/api/allAnswers', auth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Projection / what-if simulator ──
+app.get('/api/projection', auth, async (req, res) => {
+  try {
+    const locked = await get("SELECT value FROM settings WHERE key='locked'");
+    const deadline = await get("SELECT value FROM settings WHERE key='deadline'");
+    const isLocked = locked?.value === '1' || new Date(deadline?.value) < new Date();
+    if (!isLocked) return res.status(403).json({ error: 'Inte låst ännu' });
+
+    const questions = await all('SELECT id, text, type, points, options, correct_answer, day FROM questions ORDER BY sort_order, id');
+    questions.forEach(q => { if (q.options) q.options = JSON.parse(q.options); });
+    const users = await all('SELECT id, name FROM users WHERE is_admin = 0 ORDER BY name');
+    const answers = await all('SELECT user_id, question_id, answer FROM answers');
+
+    const answerMap = {};
+    answers.forEach(a => {
+      if (!answerMap[a.user_id]) answerMap[a.user_id] = {};
+      answerMap[a.user_id][a.question_id] = a.answer;
+    });
+
+    const participants = users.map(u => ({
+      id: u.id, name: u.name,
+      answers: questions.reduce((m, q) => { m[q.id] = answerMap[u.id]?.[q.id] || null; return m; }, {})
+    }));
+
+    res.json({ questions, participants });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/leaderboard', async (req, res) => {
   try {
     const board = await calcLeaderboard();
