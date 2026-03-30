@@ -323,6 +323,17 @@
     <div id="allAnswersList"></div>
   </div>
 
+  <!-- PROJECTION -->
+  <div id="projectionView" class="hidden">
+    <div class="card" style="margin-bottom:0.8rem;background:var(--green);color:white">
+      <div style="font-size:0.8rem;opacity:0.8;margin-bottom:0.2rem">What-if simulator</div>
+      <div style="font-size:1.05rem;font-weight:700">Fyll i hypotetiska rätta svar och se hur leaderboarden påverkas</div>
+    </div>
+    <div id="projQuestions"></div>
+    <div style="font-weight:700;margin:1.2rem 0 0.6rem;font-size:1rem">📊 Projicerad leaderboard</div>
+    <div id="projLeaderboard"></div>
+  </div>
+
   <!-- SIDEBETS -->
   <div id="sidebetsView" class="hidden">
     <div class="card" style="margin-bottom:0.8rem">
@@ -562,6 +573,7 @@ function buildNav() {
   const nav = document.getElementById("nav");
   let h = `<button onclick="showView('questions')">Frågor</button><button onclick="showView('results')">Mina resultat</button><button onclick="showView('leaderboard')">Leaderboard</button><button onclick="showView('sidebets')">💰 Sidebets</button>`;
   const locked = settings.locked==="1" || new Date(settings.deadline) < new Date();
+  if (locked) h += `<button onclick="showView('projection')">🔮 Projektion</button>`;
   if (locked) h += `<button onclick="showView('allAnswers')" id="navAllAnswers">👥 Alla svar</button>`;
   if (currentUser.is_admin) h += `<button onclick="showView('admin')">Admin</button>`;
   h += `<button onclick="logout()">Logga ut</button>`;
@@ -570,12 +582,13 @@ function buildNav() {
   if (currentUser.is_admin) document.getElementById("bnAdmin").classList.remove("hidden");
   const isLocked = settings.locked==="1" || new Date(settings.deadline) < new Date();
   if (isLocked) document.getElementById("bnAllAnswers").classList.remove("hidden");
+  if (isLocked) document.getElementById("bnProjection").classList.remove("hidden");
   document.getElementById("bottomNav").classList.remove("hidden");
 }
 
 // ── Views ──
 function hideAllViews() {
-  ["authView","questionsView","resultsView","leaderboardView","sidebetsView","allAnswersView","adminView"].forEach(v => document.getElementById(v).classList.add("hidden"));
+  ["authView","questionsView","resultsView","leaderboardView","projectionView","sidebetsView","allAnswersView","adminView"].forEach(v => document.getElementById(v).classList.add("hidden"));
 }
 function showView(name) {
   hideAllViews();
@@ -603,6 +616,7 @@ function showView(name) {
   }
   if (name==="admin") { loadAdminQList(); loadGradeList(); loadAdminUsers(); loadParticipantSelect(); }
   if (name==="allAnswers") loadAllAnswers();
+  if (name==="projection") loadProjection();
   if (name==="sidebets") loadSidebets();
 }
 
@@ -951,6 +965,115 @@ async function withdrawSidebet(id) {
     showToast('Bet borttaget');
     await loadSidebets();
   } catch(e) { showToast(e.message, 'error'); }
+}
+
+// ── Projection / What-if ──
+let _projData = null;
+let _projSimAnswers = {};
+async function loadProjection() {
+  const qDiv = document.getElementById('projQuestions');
+  const lbDiv = document.getElementById('projLeaderboard');
+  qDiv.innerHTML = `<div class="loading-wrap"><div class="spinner"></div></div>`;
+  lbDiv.innerHTML = '';
+  try {
+    _projData = await api('/api/projection');
+    _projSimAnswers = {};
+    // Pre-fill already graded questions
+    _projData.questions.forEach(q => {
+      if (q.correct_answer !== null && q.correct_answer !== '') {
+        _projSimAnswers[q.id] = q.correct_answer;
+      }
+    });
+    renderProjectionQuestions();
+    renderProjectionLeaderboard();
+  } catch(e) { qDiv.innerHTML = `<div class="card">${e.message}</div>`; }
+}
+function renderProjectionQuestions() {
+  const DAY = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  const qDiv = document.getElementById('projQuestions');
+  let html = '';
+  _projData.questions.forEach(q => {
+    const isGraded = q.correct_answer !== null && q.correct_answer !== '';
+    const dayLabel = DAY[q.day > 0 ? q.day : 5] || '';
+    const dayBadge = `<span style="font-size:0.7rem;background:var(--bg);padding:0.15rem 0.5rem;border-radius:99px;color:var(--text-muted)">${dayLabel}</span>`;
+
+    html += `<div class="card" style="margin-bottom:0.6rem;${isGraded ? 'opacity:0.7;' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
+        <span style="font-weight:600;font-size:0.9rem">${escHtml(q.text)}</span>
+        ${dayBadge}
+      </div>`;
+
+    if (isGraded) {
+      html += `<div style="font-size:0.82rem;color:var(--correct)">✅ Rättat: <b>${escHtml(q.correct_answer)}</b></div>`;
+    } else {
+      // Render input for simulation
+      const val = _projSimAnswers[q.id] || '';
+      if (q.type === 'multiple_choice' || q.type === 'weighted_choice') {
+        const opts = q.options || [];
+        html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
+          <option value="">— Välj hypotetiskt svar —</option>`;
+        const optTexts = q.type === 'weighted_choice' ? opts.map(o => o.text) : opts;
+        optTexts.forEach(o => {
+          const t = typeof o === 'string' ? o : o.text;
+          html += `<option value="${escHtml(t)}" ${val===t?'selected':''}>${escHtml(t)}</option>`;
+        });
+        html += `</select>`;
+      } else if (q.type === 'yes_no') {
+        html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
+          <option value="">— Välj —</option>
+          <option value="Ja" ${val==='Ja'?'selected':''}>Ja</option>
+          <option value="Nej" ${val==='Nej'?'selected':''}>Nej</option>
+        </select>`;
+      } else {
+        html += `<input type="text" value="${escHtml(val)}" placeholder="Skriv hypotetiskt svar"
+          onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()"
+          style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input);box-sizing:border-box">`;
+      }
+    }
+    html += `</div>`;
+  });
+  qDiv.innerHTML = html;
+}
+function renderProjectionLeaderboard() {
+  const lbDiv = document.getElementById('projLeaderboard');
+  if (!_projData) return;
+  // Calculate projected points for each participant
+  const board = _projData.participants.map(p => {
+    let points = 0, correctCount = 0;
+    _projData.questions.forEach(q => {
+      const simAnswer = _projSimAnswers[q.id];
+      if (!simAnswer) return;
+      const userAnswer = p.answers[q.id];
+      if (userAnswer === simAnswer) {
+        if (q.type === 'weighted_choice') {
+          const opt = (q.options || []).find(o => o.text === simAnswer);
+          points += opt ? opt.points : q.points;
+        } else {
+          points += q.points;
+        }
+        correctCount++;
+      }
+    });
+    return { name: p.name, points, correctCount, answered: Object.values(p.answers).filter(v=>v).length };
+  });
+  board.sort((a,b) => b.points - a.points);
+
+  let html = `<div class="card" style="overflow-x:auto"><table class="lb-table" style="width:100%;border-collapse:collapse;font-size:0.85rem">
+    <thead><tr style="border-bottom:2px solid var(--border);text-align:left">
+      <th style="padding:0.5rem 0.3rem">#</th><th style="padding:0.5rem 0.3rem">Namn</th>
+      <th style="padding:0.5rem 0.3rem;text-align:right">Poäng</th><th style="padding:0.5rem 0.3rem;text-align:right">Rätt</th>
+    </tr></thead><tbody>`;
+  board.forEach((p, i) => {
+    const isMe = p.name === currentUser?.name;
+    html += `<tr style="border-bottom:1px solid var(--border);${isMe?'background:rgba(8,80,54,0.08);font-weight:600':''}">
+      <td style="padding:0.45rem 0.3rem">${i+1}</td>
+      <td style="padding:0.45rem 0.3rem">${escHtml(p.name)}${isMe?' (du)':''}</td>
+      <td style="padding:0.45rem 0.3rem;text-align:right;font-weight:700;color:var(--green)">${p.points}</td>
+      <td style="padding:0.45rem 0.3rem;text-align:right">${p.correctCount}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  lbDiv.innerHTML = html;
 }
 
 // ── Leaderboard ──
@@ -1587,7 +1710,7 @@ checkAuth();
 
 // ── Swipe between tabs ──
 (function() {
-  const VIEWS = ['questions','results','leaderboard','sidebets'];
+  const VIEWS = ['questions','results','leaderboard','sidebets','projection'];
   let tx = 0, ty = 0;
   document.getElementById('app').addEventListener('touchstart', e => {
     tx = e.touches[0].clientX; ty = e.touches[0].clientY;
@@ -1623,6 +1746,10 @@ checkAuth();
   <button onclick="showView('sidebets')" data-view="sidebets">
     <span class="nav-icon">💰</span>
     <span>Sidebets</span>
+  </button>
+  <button id="bnProjection" onclick="showView('projection')" data-view="projection" class="hidden">
+    <span class="nav-icon">🔮</span>
+    <span>Projektion</span>
   </button>
   <button id="bnAllAnswers" onclick="showView('allAnswers')" data-view="allAnswers" class="hidden">
     <span class="nav-icon">👥</span>
