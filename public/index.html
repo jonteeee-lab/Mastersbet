@@ -597,10 +597,10 @@ function showView(name) {
   el.classList.remove("view-fade");
   void el.offsetWidth; // reflow to restart animation
   el.classList.add("view-fade");
-  document.querySelectorAll("#nav button").forEach(b => b.classList.remove("active"));
-  const map = {questions:0,results:1,leaderboard:2,admin:3};
-  const btns = document.querySelectorAll("#nav button");
-  if (btns[map[name]]) btns[map[name]].classList.add("active");
+  document.querySelectorAll("#nav button").forEach(b => {
+    b.classList.remove("active");
+    if (b.getAttribute("onclick")?.includes("'" + name + "'")) b.classList.add("active");
+  });
   // Sync bottom nav
   document.querySelectorAll("#bottomNav button[data-view]").forEach(b => {
     b.classList.toggle("active", b.dataset.view === name);
