@@ -925,7 +925,8 @@ function renderSidebet(b, isLocked) {
   let winnerBadge = '';
   if (b.status === 'settled') {
     const prize = b.stake * 2;
-    winnerBadge = `<div style="margin-top:0.4rem;font-size:0.82rem;color:var(--correct)">🏆 Vinnare: <b>${b.winner_name}</b> vann ${prize} cuscados</div>`;
+    const cmt = b.comment ? `<div style="margin-top:0.2rem;font-size:0.8rem;color:var(--text-muted);font-style:italic">"${escHtml(b.comment)}"</div>` : '';
+    winnerBadge = `<div style="margin-top:0.4rem;font-size:0.82rem;color:var(--correct)">🏆 Vinnare: <b>${b.winner_name}</b> vann ${prize} cuscados</div>${cmt}`;
   }
   return `<div class="card" style="margin-bottom:0.6rem">
     <div style="font-weight:600;margin-bottom:0.25rem">${escHtml(b.title)}</div>
@@ -991,44 +992,53 @@ async function loadProjection() {
 function renderProjectionQuestions() {
   const DAY = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
   const qDiv = document.getElementById('projQuestions');
-  let html = '';
-  _projData.questions.forEach(q => {
-    const isGraded = q.correct_answer !== null && q.correct_answer !== '';
+  const total = _projData.questions.length;
+  const graded = _projData.questions.filter(q => q.correct_answer !== null && q.correct_answer !== '').length;
+  const ungraded = _projData.questions.filter(q => q.correct_answer === null || q.correct_answer === '');
+
+  let html = `<div class="card" style="margin-bottom:0.8rem;text-align:center">
+    <div style="font-size:0.85rem;color:var(--text-muted)">Rättade frågor</div>
+    <div style="font-size:1.4rem;font-weight:700;color:var(--green)">${graded} / ${total}</div>
+    <div style="background:#e8e8e8;border-radius:99px;height:8px;margin-top:0.5rem">
+      <div style="width:${total?Math.round(graded/total*100):0}%;height:100%;background:var(--green);border-radius:99px;transition:width 0.4s"></div>
+    </div>
+  </div>`;
+
+  if (ungraded.length === 0) {
+    html += `<div class="card" style="text-align:center;color:var(--correct)">Alla frågor är rättade — leaderboarden nedan visar det slutgiltiga resultatet.</div>`;
+  }
+
+  ungraded.forEach(q => {
     const dayLabel = DAY[q.day > 0 ? q.day : 5] || '';
     const dayBadge = `<span style="font-size:0.7rem;background:var(--bg);padding:0.15rem 0.5rem;border-radius:99px;color:var(--text-muted)">${dayLabel}</span>`;
+    const val = _projSimAnswers[q.id] || '';
 
-    html += `<div class="card" style="margin-bottom:0.6rem;${isGraded ? 'opacity:0.7;' : ''}">
+    html += `<div class="card" style="margin-bottom:0.6rem">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
         <span style="font-weight:600;font-size:0.9rem">${escHtml(q.text)}</span>
         ${dayBadge}
       </div>`;
 
-    if (isGraded) {
-      html += `<div style="font-size:0.82rem;color:var(--correct)">✅ Rättat: <b>${escHtml(q.correct_answer)}</b></div>`;
+    if (q.type === 'multiple_choice' || q.type === 'weighted_choice') {
+      const opts = q.options || [];
+      html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
+        <option value="">— Välj hypotetiskt svar —</option>`;
+      const optTexts = q.type === 'weighted_choice' ? opts.map(o => o.text) : opts;
+      optTexts.forEach(o => {
+        const t = typeof o === 'string' ? o : o.text;
+        html += `<option value="${escHtml(t)}" ${val===t?'selected':''}>${escHtml(t)}</option>`;
+      });
+      html += `</select>`;
+    } else if (q.type === 'yes_no') {
+      html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
+        <option value="">— Välj —</option>
+        <option value="Ja" ${val==='Ja'?'selected':''}>Ja</option>
+        <option value="Nej" ${val==='Nej'?'selected':''}>Nej</option>
+      </select>`;
     } else {
-      // Render input for simulation
-      const val = _projSimAnswers[q.id] || '';
-      if (q.type === 'multiple_choice' || q.type === 'weighted_choice') {
-        const opts = q.options || [];
-        html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
-          <option value="">— Välj hypotetiskt svar —</option>`;
-        const optTexts = q.type === 'weighted_choice' ? opts.map(o => o.text) : opts;
-        optTexts.forEach(o => {
-          const t = typeof o === 'string' ? o : o.text;
-          html += `<option value="${escHtml(t)}" ${val===t?'selected':''}>${escHtml(t)}</option>`;
-        });
-        html += `</select>`;
-      } else if (q.type === 'yes_no') {
-        html += `<select onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()" style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input)">
-          <option value="">— Välj —</option>
-          <option value="Ja" ${val==='Ja'?'selected':''}>Ja</option>
-          <option value="Nej" ${val==='Nej'?'selected':''}>Nej</option>
-        </select>`;
-      } else {
-        html += `<input type="text" value="${escHtml(val)}" placeholder="Skriv hypotetiskt svar"
-          onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()"
-          style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input);box-sizing:border-box">`;
-      }
+      html += `<input type="text" value="${escHtml(val)}" placeholder="Skriv hypotetiskt svar"
+        onchange="_projSimAnswers[${q.id}]=this.value;renderProjectionLeaderboard()"
+        style="width:100%;padding:0.5rem;border:1px solid var(--border-dark);border-radius:6px;font-family:inherit;font-size:0.85rem;background:var(--bg-input);box-sizing:border-box">`;
     }
     html += `</div>`;
   });
@@ -1207,6 +1217,7 @@ async function loadAdminSidebets() {
         html += `<div class="card" style="margin-bottom:0.7rem">
           <div style="font-weight:600;margin-bottom:0.4rem">${escHtml(b.title)}</div>
           <div style="font-size:0.85rem;margin-bottom:0.6rem;color:var(--text-muted)"><b>${b.creator_name}</b> vs <b>${b.acceptor_name}</b> &nbsp;·&nbsp; ${b.stake} cuscados/person</div>
+          <div class="form-group" style="margin-bottom:0.5rem"><input type="text" id="sbComment_${b.id}" placeholder="Kommentar (valfri)" style="font-size:0.82rem"></div>
           <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
             <button class="btn btn-sm" onclick="setWinner(${b.id},${b.creator_id},'${escHtml(b.creator_name)}')">${b.creator_name} vinner</button>
             <button class="btn btn-sm" onclick="setWinner(${b.id},${b.acceptor_id},'${escHtml(b.acceptor_name)}')">${b.acceptor_name} vinner</button>
@@ -1225,8 +1236,9 @@ async function loadAdminSidebets() {
     if (settled.length) {
       html += `<div style="font-weight:700;margin:1rem 0 0.5rem;font-size:0.9rem;color:var(--text-muted)">✅ Avgjorda (${settled.length})</div>`;
       settled.forEach(b => {
+        const cmt = b.comment ? `<div style="margin-top:0.3rem;color:var(--text-muted);font-style:italic">"${escHtml(b.comment)}"</div>` : '';
         html += `<div class="card" style="margin-bottom:0.5rem;font-size:0.85rem">
-          <b>${escHtml(b.title)}</b> &nbsp;·&nbsp; 🏆 <b>${b.winner_name}</b> vann ${b.stake*2} cuscados
+          <b>${escHtml(b.title)}</b> &nbsp;·&nbsp; 🏆 <b>${b.winner_name}</b> vann ${b.stake*2} cuscados${cmt}
         </div>`;
       });
     }
@@ -1239,7 +1251,8 @@ async function loadAdminSidebets() {
 async function setWinner(betId, winnerId, winnerName) {
   if (!confirm(`Markera ${winnerName} som vinnare?`)) return;
   try {
-    await api(`/api/admin/sidebets/${betId}/winner`, { method:'POST', body:JSON.stringify({ winner_id: winnerId }) });
+    const comment = document.getElementById(`sbComment_${betId}`)?.value?.trim() || '';
+    await api(`/api/admin/sidebets/${betId}/winner`, { method:'POST', body:JSON.stringify({ winner_id: winnerId, comment }) });
     showToast(`${winnerName} markerad som vinnare! 🏆`);
     loadAdminSidebets();
   } catch(e) { showToast(e.message, 'error'); }
