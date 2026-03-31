@@ -65,9 +65,12 @@ async function initDb() {
       acceptor_id INTEGER REFERENCES users(id),
       status TEXT NOT NULL DEFAULT 'open',
       winner_id INTEGER REFERENCES users(id),
+      comment TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Migration: add comment column if missing
+  await pool.query(`ALTER TABLE sidebets ADD COLUMN IF NOT EXISTS comment TEXT`);
   // Default settings
   await pool.query(`
     INSERT INTO settings (key, value) VALUES

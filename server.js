@@ -397,7 +397,8 @@ app.get('/api/sidebets', auth, async (req, res) => {
       SELECT s.id, s.title, s.stake, s.status, s.created_at,
         s.creator_id, uc.name AS creator_name,
         s.acceptor_id, ua.name AS acceptor_name,
-        s.winner_id, uw.name AS winner_name
+        s.winner_id, uw.name AS winner_name,
+        s.comment
       FROM sidebets s
       JOIN users uc ON uc.id = s.creator_id
       LEFT JOIN users ua ON ua.id = s.acceptor_id
@@ -452,14 +453,14 @@ app.post('/api/sidebets/:id/withdraw', auth, async (req, res) => {
 // Admin: set winner
 app.post('/api/admin/sidebets/:id/winner', adminAuth, async (req, res) => {
   try {
-    const { winner_id } = req.body;
+    const { winner_id, comment } = req.body;
     const bet = await get('SELECT * FROM sidebets WHERE id = ?', [req.params.id]);
     if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
     if (bet.status !== 'matched') return res.status(400).json({ error: 'Bettet är inte matchat' });
     if (winner_id !== bet.creator_id && winner_id !== bet.acceptor_id)
       return res.status(400).json({ error: 'Ogiltig vinnare' });
-    await run("UPDATE sidebets SET winner_id = ?, status = 'settled' WHERE id = ?",
-      [winner_id, req.params.id]);
+    await run("UPDATE sidebets SET winner_id = ?, comment = ?, status = 'settled' WHERE id = ?",
+      [winner_id, comment || null, req.params.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
