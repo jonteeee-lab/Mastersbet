@@ -382,6 +382,7 @@
         <h4 style="margin:0 0 0.7rem">Skapa nytt bet</h4>
         <div class="form-group"><label>Bettet</label><input type="text" id="sbTitle" placeholder="T.ex. Scheffler leder efter dag 1" maxlength="200"></div>
         <div class="form-group"><label>Insats (cuscados)</label><input type="text" inputmode="numeric" id="sbStake" placeholder="50"></div>
+        <div class="form-group"><label>Giltigt till (valfritt)</label><input type="datetime-local" id="sbExpiry"></div>
         <button class="btn" onclick="createSidebet()">Skapa bet</button>
       </div>
     </div>
@@ -850,7 +851,8 @@ async function loadResults() {
       const cls = r.correct===true?"r-correct":r.correct===false?"r-wrong":"r-pending";
       const badge = r.correct===true?`<span class="badge badge-ok">Rätt ✓</span>`:r.correct===false?`<span class="badge badge-no">Fel ✗</span>`:`<span class="badge badge-wait">Väntar</span>`;
       const dayLabel = `<span style="font-size:0.72rem;color:var(--text-muted);margin-left:0.3rem">${DAY_LABELS_R[r.day||0]}</span>`;
-      html += `<div class="q-card ${cls}"><div class="q-header"><span class="q-text">${r.text}${dayLabel}</span><span class="q-pts">${r.points} p</span></div>
+      const ptsDisplay = r.correct_answer !== null ? `${r.pointsEarned||0}/${r.points} p` : `${r.points} p`;
+      html += `<div class="q-card ${cls}"><div class="q-header"><span class="q-text">${r.text}${dayLabel}</span><span class="q-pts">${ptsDisplay}</span></div>
         <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-top:0.4rem;font-size:0.9rem">
           <span><strong>Ditt svar:</strong> ${r.my_answer||"<em style=color:var(--text-muted)>Ej besvarat</em>"}</span>
           ${r.correct_answer!==null?`<span><strong>Rätt svar:</strong> ${r.correct_answer}</span>`:""}
@@ -944,16 +946,14 @@ async function loadSidebets() {
   try {
     _sidebets = await api('/api/sidebets');
     renderSidebets();
-    // Show/hide create area based on lock status
-    const isLocked = settings.locked==="1" || new Date(settings.deadline) < new Date();
-    document.getElementById('sbCreateArea').style.display = isLocked ? 'none' : '';
+    // Sidebets are always available
+    document.getElementById('sbCreateArea').style.display = '';
   } catch(e) { list.innerHTML = `<div class="card">${e.message}</div>`; }
 }
 function renderSidebets() {
   const list = document.getElementById('sidebetsList');
   const groups = { open: [], matched: [], settled: [] };
   _sidebets.forEach(b => groups[b.status]?.push(b));
-  const isLocked = settings.locked==="1" || new Date(settings.deadline) < new Date();
   let html = '';
   const groupDefs = [
     { key:'open', label:'🟢 Öppna', emptyMsg:'Inga öppna bets' },
@@ -965,21 +965,31 @@ function renderSidebets() {
     if (groups[key].length === 0) {
       html += `<div class="card" style="color:var(--text-muted);font-size:0.85rem">${emptyMsg}</div>`;
     } else {
-      groups[key].forEach(b => { html += renderSidebet(b, isLocked); });
+      groups[key].forEach(b => { html += renderSidebet(b); });
     }
   });
   list.innerHTML = html;
 }
-function renderSidebet(b, isLocked) {
+function renderSidebet(b) {
   const isCreator = b.creator_id === currentUser.id;
   const isAcceptor = b.acceptor_id === currentUser.id;
   let actions = '';
   if (b.status === 'open') {
     if (isCreator) {
       actions += `<button class="btn btn-sm btn-outline" onclick="withdrawSidebet(${b.id})" style="margin-top:0.5rem;font-size:0.8rem">Ta tillbaka</button>`;
-    } else if (!isLocked) {
+    } else {
       actions += `<button class="btn btn-sm" onclick="acceptSidebet(${b.id})" style="margin-top:0.5rem;font-size:0.8rem">Acceptera</button>`;
     }
+  }
+  if (b.status === 'matched' && isCreator) {
+    actions += `<div style="margin-top:0.6rem;border-top:1px solid var(--border);padding-top:0.5rem">
+      <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.3rem">Rätta bet</div>
+      <input type="text" id="sbCmt_${b.id}" placeholder="Kommentar (valfritt)" style="font-size:0.82rem;margin-bottom:0.3rem;width:100%">
+      <div style="display:flex;gap:0.4rem">
+        <button class="btn btn-sm" onclick="creatorSettle(${b.id},${b.creator_id},'${escHtml(b.creator_name)}')" style="font-size:0.78rem">Jag vann</button>
+        <button class="btn btn-sm btn-outline" onclick="creatorSettle(${b.id},${b.acceptor_id},'${escHtml(b.acceptor_name)}')" style="font-size:0.78rem">${escHtml(b.acceptor_name)} vann</button>
+      </div>
+    </div>`;
   }
   let participants = `<span style="color:var(--text-muted);font-size:0.8rem">Skapad av <b>${b.creator_name}</b></span>`;
   if (b.status === 'matched' || b.status === 'settled') {
@@ -991,10 +1001,19 @@ function renderSidebet(b, isLocked) {
     const cmt = b.comment ? `<div style="margin-top:0.2rem;font-size:0.8rem;color:var(--text-muted);font-style:italic">"${escHtml(b.comment)}"</div>` : '';
     winnerBadge = `<div style="margin-top:0.4rem;font-size:0.82rem;color:var(--correct)">🏆 Vinnare: <b>${b.winner_name}</b> vann ${prize} cuscados</div>${cmt}`;
   }
+  let expiryInfo = '';
+  if (b.expires_at && b.status === 'open') {
+    const exp = new Date(b.expires_at);
+    const now = new Date();
+    if (exp > now) {
+      expiryInfo = `<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.2rem">⏰ Giltigt till ${exp.toLocaleString('sv-SE',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>`;
+    }
+  }
   return `<div class="card" style="margin-bottom:0.6rem">
     <div style="font-weight:600;margin-bottom:0.25rem">${escHtml(b.title)}</div>
     <div style="font-size:0.85rem;color:var(--text-muted)">Insats: <b style="color:var(--green)">${b.stake} cuscados</b> &nbsp;·&nbsp; Vinnarpott: <b style="color:var(--green)">${b.stake*2} cuscados</b></div>
     <div style="margin-top:0.3rem">${participants}</div>
+    ${expiryInfo}
     ${winnerBadge}
     ${actions}
   </div>`;
@@ -1003,14 +1022,28 @@ function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 async function createSidebet() {
   const title = document.getElementById('sbTitle').value.trim();
   const stake = parseInt(document.getElementById('sbStake').value);
+  const expiryVal = document.getElementById('sbExpiry').value;
   if (!title) return showToast('Ange ett bettitel', 'error');
   if (!stake || stake < 1) return showToast('Ange en insats', 'error');
+  const body = { title, stake };
+  if (expiryVal) body.expires_at = new Date(expiryVal).toISOString();
   try {
-    await api('/api/sidebets', { method:'POST', body:JSON.stringify({ title, stake }) });
+    await api('/api/sidebets', { method:'POST', body:JSON.stringify(body) });
     document.getElementById('sbTitle').value = '';
     document.getElementById('sbStake').value = '';
+    document.getElementById('sbExpiry').value = '';
     showToast('Bet skapat!');
     if(navigator.vibrate) navigator.vibrate(30);
+    await loadSidebets();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+async function creatorSettle(betId, winnerId, winnerName) {
+  if (!confirm(`Sätt ${winnerName} som vinnare?`)) return;
+  const comment = document.getElementById(`sbCmt_${betId}`)?.value?.trim() || '';
+  try {
+    await api(`/api/sidebets/${betId}/settle`, { method:'POST', body:JSON.stringify({ winner_id: winnerId, comment }) });
+    showToast('Bet avgjort! 🏆');
+    if(navigator.vibrate) navigator.vibrate([30,50,30]);
     await loadSidebets();
   } catch(e) { showToast(e.message, 'error'); }
 }
