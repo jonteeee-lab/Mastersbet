@@ -337,6 +337,7 @@
   <!-- LEADERBOARD -->
   <div id="leaderboardView" class="hidden">
     <div id="myRankCard" style="margin-bottom:0.8rem"></div>
+    <div id="lbMovers" style="margin-bottom:0.8rem"></div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem">
         <h2 style="margin:0">Leaderboard</h2>
@@ -357,7 +358,12 @@
       <div style="font-size:0.8rem;opacity:0.8;margin-bottom:0.2rem">Poolen är låst</div>
       <div style="font-size:1.1rem;font-weight:700">Alla deltagares svar är nu synliga</div>
     </div>
+    <div style="display:flex;gap:0.4rem;margin-bottom:0.8rem">
+      <button class="btn btn-sm" id="aaTabPlayers" onclick="showAllAnswersTab('players')" style="flex:1">👥 Per deltagare</button>
+      <button class="btn btn-sm btn-outline" id="aaTabStats" onclick="showAllAnswersTab('stats')" style="flex:1">📊 Statistik</button>
+    </div>
     <div id="allAnswersList"></div>
+    <div id="allAnswersStats" class="hidden"></div>
   </div>
 
   <!-- PROJECTION -->
@@ -877,7 +883,9 @@ async function loadAllAnswers() {
   const c = document.getElementById("allAnswersList");
   c.innerHTML = '<div class="loading-wrap"><div class="spinner"></div></div>';
   try {
-    const { questions, participants } = await api("/api/allAnswers");
+    const data = await api("/api/allAnswers");
+    _allAnswersData = data;
+    const { questions, participants } = data;
     const DAY_LABELS_A = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
 
     // Group questions by day
@@ -930,6 +938,69 @@ async function loadAllAnswers() {
   }
 }
 
+let _allAnswersData = null;
+function showAllAnswersTab(tab) {
+  const listEl = document.getElementById('allAnswersList');
+  const statsEl = document.getElementById('allAnswersStats');
+  const btnP = document.getElementById('aaTabPlayers');
+  const btnS = document.getElementById('aaTabStats');
+  if (tab === 'stats') {
+    listEl.classList.add('hidden');
+    statsEl.classList.remove('hidden');
+    btnP.className = 'btn btn-sm btn-outline';
+    btnS.className = 'btn btn-sm';
+    if (_allAnswersData) renderAnswerStats(_allAnswersData);
+  } else {
+    listEl.classList.remove('hidden');
+    statsEl.classList.add('hidden');
+    btnP.className = 'btn btn-sm';
+    btnS.className = 'btn btn-sm btn-outline';
+  }
+}
+function renderAnswerStats(data) {
+  const { questions, participants } = data;
+  const DAY_LABELS_S = ['Hela tävlingen','Dag 1','Dag 2','Dag 3','Dag 4','Hela tävlingen'];
+  // Build answer counts per question
+  let html = '';
+  const days = [...new Set(questions.map(q => q.day>0?q.day:5))].sort((a,b)=>a-b);
+  days.forEach(d => {
+    const dayQs = questions.filter(q => (q.day>0?q.day:5) === d);
+    if (!dayQs.length) return;
+    html += `<div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin:1rem 0 0.5rem">${DAY_LABELS_S[d]}</div>`;
+    dayQs.forEach(q => {
+      // Count answers
+      const counts = {};
+      let total = 0;
+      participants.forEach(p => {
+        const ans = p.answers.find(a => a.question_id === q.id);
+        if (ans && ans.answer) {
+          counts[ans.answer] = (counts[ans.answer] || 0) + 1;
+          total++;
+        }
+      });
+      const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+      const correctAns = q.correct_answer;
+      html += `<div class="card" style="margin-bottom:0.6rem;padding:0.8rem 1rem">
+        <div style="font-size:0.88rem;font-weight:600;margin-bottom:0.5rem">${q.text}${correctAns?` <span style="font-size:0.75rem;color:var(--green)">Rätt: ${correctAns}</span>`:''}</div>`;
+      sorted.forEach(([ans, cnt]) => {
+        const pct = Math.round(cnt/total*100);
+        const isCorrect = correctAns && ans === correctAns;
+        const barColor = isCorrect ? 'var(--green)' : (correctAns ? '#c0392b' : 'var(--green)');
+        const opacity = correctAns && !isCorrect ? '0.5' : '1';
+        html += `<div style="margin-bottom:0.35rem;opacity:${opacity}">
+          <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.15rem">
+            <span>${ans}${isCorrect?' ✓':''}</span><span style="color:var(--text-muted)">${cnt} st (${pct}%)</span>
+          </div>
+          <div style="background:rgba(128,128,128,0.12);border-radius:3px;height:8px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.5s"></div>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    });
+  });
+  document.getElementById('allAnswersStats').innerHTML = html;
+}
 function toggleParticipant(idx) {
   const el = document.getElementById(`pdetail_${idx}`);
   const arrow = document.getElementById(`arrow_${idx}`);
@@ -1208,6 +1279,45 @@ async function loadLeaderboard() {
       <div style="text-align:right"><div style="font-size:0.8rem;opacity:0.8">Dina poäng</div><div style="font-size:1.8rem;font-weight:700">${me.points} p</div></div>
     </div>`;
   } else { myRankCard.innerHTML = ""; }
+
+  // Calculate movers
+  const movers = [];
+  if (prevSnapshot) {
+    board.forEach((p, i) => {
+      const prevIdx = prevSnapshot.findIndex(x => x.name === p.name);
+      if (prevIdx !== -1) {
+        const diff = prevIdx - i;
+        const prevPts = prevSnapshot[prevIdx]?.points || 0;
+        const ptsDiff = p.points - prevPts;
+        if (diff !== 0) movers.push({ name: p.name, diff, ptsDiff });
+      }
+    });
+  }
+  const moversDiv = document.getElementById('lbMovers');
+  if (movers.length > 0) {
+    movers.sort((a, b) => b.diff - a.diff);
+    const best = movers[0];
+    const worst = movers[movers.length - 1];
+    let mHtml = '<div style="display:flex;gap:0.6rem;flex-wrap:wrap">';
+    if (best.diff > 0) {
+      mHtml += `<div class="card" style="flex:1;min-width:140px;border-left:3px solid #1a7a3c;padding:0.7rem 1rem">
+        <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Dagens vinnare 🚀</div>
+        <div style="font-size:1.1rem;font-weight:700;margin-top:0.15rem">${best.name}</div>
+        <div style="font-size:0.85rem;color:#1a7a3c;font-weight:600">▲ ${best.diff} placeringar${best.ptsDiff>0?' · +'+best.ptsDiff+'p':''}</div>
+      </div>`;
+    }
+    if (worst.diff < 0) {
+      mHtml += `<div class="card" style="flex:1;min-width:140px;border-left:3px solid #c0392b;padding:0.7rem 1rem">
+        <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Dagens förlorare 📉</div>
+        <div style="font-size:1.1rem;font-weight:700;margin-top:0.15rem">${worst.name}</div>
+        <div style="font-size:0.85rem;color:#c0392b;font-weight:600">▼ ${Math.abs(worst.diff)} placeringar${worst.ptsDiff!==undefined?' · '+worst.ptsDiff+'p':''}</div>
+      </div>`;
+    }
+    mHtml += '</div>';
+    moversDiv.innerHTML = mHtml;
+  } else {
+    moversDiv.innerHTML = '';
+  }
 
   document.querySelector("#lbTable tbody").innerHTML = board.map((p,i) => {
     const cls = i===0?"rank-1":i===1?"rank-2":i===2?"rank-3":"";
