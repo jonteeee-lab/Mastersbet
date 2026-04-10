@@ -180,7 +180,8 @@ app.get('/api/allAnswers', auth, async (req, res) => {
     const isLocked = locked?.value === '1' || new Date(deadline?.value) < new Date();
     if (!isLocked) return res.status(403).json({ error: 'Inte låst ännu' });
 
-    const questions = await all('SELECT id, text, type, points, category, day FROM questions ORDER BY sort_order, id');
+    const questions = await all('SELECT id, text, type, points, options, correct_answer, category, day FROM questions ORDER BY sort_order, id');
+    questions.forEach(q => { if (q.options) q.options = JSON.parse(q.options); });
     const users = await all('SELECT id, name FROM users WHERE is_admin = 0 ORDER BY name');
     const answers = await all('SELECT user_id, question_id, answer FROM answers');
 
