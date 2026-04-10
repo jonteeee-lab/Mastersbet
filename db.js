@@ -71,6 +71,8 @@ async function initDb() {
   `);
   // Migration: add comment column if missing
   await pool.query(`ALTER TABLE sidebets ADD COLUMN IF NOT EXISTS comment TEXT`);
+  // Migration: add expires_at column for sidebet expiry
+  await pool.query(`ALTER TABLE sidebets ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`);
   // Default settings
   await pool.query(`
     INSERT INTO settings (key, value) VALUES

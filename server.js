@@ -296,6 +296,15 @@ app.post('/api/admin/questions', adminAuth, async (req, res) => {
 app.put('/api/admin/questions/:id', adminAuth, async (req, res) => {
   try {
     const { text, type, options, points, correct_answer, category, sort_order, day } = req.body;
+    // Auto-snapshot before grading: save current leaderboard if correct_answer is being set
+    if (correct_answer) {
+      const oldQ = await get('SELECT correct_answer FROM questions WHERE id = ?', [req.params.id]);
+      if (!oldQ?.correct_answer || oldQ.correct_answer !== correct_answer) {
+        const board = await calcLeaderboard();
+        await run('INSERT INTO leaderboard_snapshots (data, label) VALUES (?, ?)',
+          [JSON.stringify(board), 'Auto – före rättning']);
+      }
+    }
     await run('UPDATE questions SET text=?, type=?, options=?, points=?, correct_answer=?, category=?, sort_order=?, day=? WHERE id=?',
       [text, type, options ? JSON.stringify(options) : null, points||1, correct_answer||null, category||null, sort_order||0, day||0, req.params.id]);
     res.json({ ok: true });
@@ -393,8 +402,10 @@ app.delete('/api/admin/users/:userId/answers/:questionId', adminAuth, async (req
 // List all sidebets with creator/acceptor/winner names
 app.get('/api/sidebets', auth, async (req, res) => {
   try {
+    // Auto-delete expired open sidebets
+    await run("DELETE FROM sidebets WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at < NOW()");
     const rows = await all(`
-      SELECT s.id, s.title, s.stake, s.status, s.created_at,
+      SELECT s.id, s.title, s.stake, s.status, s.created_at, s.expires_at,
         s.creator_id, uc.name AS creator_name,
         s.acceptor_id, ua.name AS acceptor_name,
         s.winner_id, uw.name AS winner_name,
@@ -412,10 +423,10 @@ app.get('/api/sidebets', auth, async (req, res) => {
 // Create a sidebet
 app.post('/api/sidebets', auth, async (req, res) => {
   try {
-    const { title, stake } = req.body;
+    const { title, stake, expires_at } = req.body;
     if (!title || !stake || stake < 1) return res.status(400).json({ error: 'Titel och insats krävs' });
-    await run('INSERT INTO sidebets (title, stake, creator_id) VALUES (?, ?, ?)',
-      [title.trim(), parseInt(stake), req.user.id]);
+    await run('INSERT INTO sidebets (title, stake, creator_id, expires_at) VALUES (?, ?, ?, ?)',
+      [title.trim(), parseInt(stake), req.user.id, expires_at || null]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -427,11 +438,7 @@ app.post('/api/sidebets/:id/accept', auth, async (req, res) => {
     if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
     if (bet.status !== 'open') return res.status(400).json({ error: 'Bettet är inte öppet' });
     if (bet.creator_id === req.user.id) return res.status(400).json({ error: 'Du kan inte acceptera ditt eget bet' });
-    // Check if pool is locked
-    const locked = await get("SELECT value FROM settings WHERE key='locked'");
-    const deadline = await get("SELECT value FROM settings WHERE key='deadline'");
-    const isLocked = locked?.value === '1' || new Date(deadline?.value) < new Date();
-    if (isLocked) return res.status(403).json({ error: 'Poolen är låst' });
+    if (bet.expires_at && new Date(bet.expires_at) < new Date()) return res.status(400).json({ error: 'Bettet har gått ut' });
     await run("UPDATE sidebets SET acceptor_id = ?, status = 'matched' WHERE id = ?",
       [req.user.id, req.params.id]);
     res.json({ ok: true });
@@ -446,6 +453,22 @@ app.post('/api/sidebets/:id/withdraw', auth, async (req, res) => {
     if (bet.creator_id !== req.user.id) return res.status(403).json({ error: 'Inte ditt bet' });
     if (bet.status !== 'open') return res.status(400).json({ error: 'Kan bara ta tillbaka öppna bets' });
     await run('DELETE FROM sidebets WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Creator settles own sidebet
+app.post('/api/sidebets/:id/settle', auth, async (req, res) => {
+  try {
+    const { winner_id, comment } = req.body;
+    const bet = await get('SELECT * FROM sidebets WHERE id = ?', [req.params.id]);
+    if (!bet) return res.status(404).json({ error: 'Bet ej hittat' });
+    if (bet.creator_id !== req.user.id) return res.status(403).json({ error: 'Bara skaparen kan rätta' });
+    if (bet.status !== 'matched') return res.status(400).json({ error: 'Bettet är inte matchat' });
+    if (winner_id !== bet.creator_id && winner_id !== bet.acceptor_id)
+      return res.status(400).json({ error: 'Ogiltig vinnare' });
+    await run("UPDATE sidebets SET winner_id = ?, comment = ?, status = 'settled' WHERE id = ?",
+      [winner_id, comment || null, req.params.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
